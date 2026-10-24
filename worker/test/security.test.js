@@ -62,7 +62,7 @@ test("administrator data routes are explicit and bounded", () => {
   assert.equal(adminDataRoute("/api/admin/boards/archive/delete-all"), null);
 });
 
-test("admin credentials require both the admin route and Access assertion", () => {
+test("admin credentials fail closed without verified Access configuration", async () => {
   const publicWithAdminSecret = new Request("https://worker.invalid", {
     headers: { "Sec-WebSocket-Protocol": "bwa-v2, admin.secret" },
   });
@@ -70,16 +70,16 @@ test("admin credentials require both the admin route and Access assertion", () =
     headers: { "Cf-Access-Jwt-Assertion": "signed-access-token" },
   });
   assert.equal(hasAdminProtocol(publicWithAdminSecret), true);
-  assert.equal(hasAccessAssertion(publicWithAdminSecret), false);
-  assert.equal(hasAccessAssertion(accessRequest), true);
+  assert.equal(await hasAccessAssertion(publicWithAdminSecret), false);
+  assert.equal(await hasAccessAssertion(accessRequest), false);
   assert.equal(
-    hasAccessAssertion(publicWithAdminSecret, {
+    await hasAccessAssertion(publicWithAdminSecret, {
       ALLOW_MISSING_ACCESS_ASSERTION: "true",
     }),
     true,
   );
   assert.equal(
-    hasAccessAssertion(publicWithAdminSecret, {
+    await hasAccessAssertion(publicWithAdminSecret, {
       ALLOW_MISSING_ACCESS_ASSERTION: "false",
     }),
     false,

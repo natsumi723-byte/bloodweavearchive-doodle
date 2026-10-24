@@ -5,6 +5,17 @@ let adminLockInstalled = false;
 let adminWindowBlurred = false;
 let adminWindowReloading = false;
 
+function t(key, fallback) {
+  try {
+    const catalog = JSON.parse(
+      document.getElementById("translations")?.textContent || "{}",
+    );
+    return catalog[key] || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes))
@@ -37,7 +48,8 @@ function adminToken() {
   } catch {}
   if (activeAdminToken) return activeAdminToken;
   if (typeof document === "undefined" || !document.body?.appendChild) {
-    activeAdminToken = window.prompt("请输入管理员密钥") || "";
+    activeAdminToken =
+      window.prompt(t("admin_secret_prompt", "Enter administrator key")) || "";
     return activeAdminToken || null;
   }
   return new Promise((resolve) => {
@@ -54,12 +66,12 @@ function adminToken() {
     const title = document.createElement("div");
     title.className = "wbo-dialog-title";
     title.id = "bwaAdminUnlockTitle";
-    title.textContent = "管理员入口";
+    title.textContent = t("admin_unlock_title", "Administrator access");
 
     const message = document.createElement("label");
     message.className = "wbo-dialog-message";
     message.htmlFor = "bwaAdminSecret";
-    message.textContent = "请输入管理员密钥";
+    message.textContent = t("admin_secret_prompt", "Enter administrator key");
 
     const input = document.createElement("input");
     input.id = "bwaAdminSecret";
@@ -72,11 +84,11 @@ function adminToken() {
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "wbo-dialog-button wbo-dialog-button-secondary";
-    cancel.textContent = "取消";
+    cancel.textContent = t("cancel", "Cancel");
     const submit = document.createElement("button");
     submit.type = "submit";
     submit.className = "wbo-dialog-button wbo-dialog-button-primary";
-    submit.textContent = "进入";
+    submit.textContent = t("admin_unlock_submit", "Unlock");
 
     const settle = (value) => {
       backdrop.remove();
@@ -196,7 +208,7 @@ export class CloudflareSocket {
       this.dispatch("boardstate", {
         canEdit: true,
         canWrite: true,
-        canClear: false,
+        canClear: requiresAdmin && Boolean(elevated),
         canBan: false,
         canReport: false,
       });
@@ -223,6 +235,18 @@ export class CloudflareSocket {
   emit(name, message) {
     if (name !== "broadcast" || !message) return;
     const type = Number(message.type);
+    if (type === 6) {
+      if (!isAdminPath(location.pathname) || !activeAdminToken) {
+        this.dispatch("mutation_rejected", { reason: "admin_required" });
+        return;
+      }
+      const mutationId = this.createMutationId();
+      this.sendDurableMutation(
+        { type: "admin.delete_all", mutationId, sender: this.id },
+        [message.clientMutationId].filter(Boolean),
+      );
+      return;
+    }
     if (type === 3 && message.id) {
       this.flushItem(message.id);
       this.lastDeleteMutation = message;
@@ -336,6 +360,28 @@ export class CloudflareSocket {
       });
       return;
     }
+    if (message.type === "admin.delete_all") {
+      this.sequence = Math.max(
+        this.sequence + 1,
+        Number(message.sequence) || 0,
+      );
+      this.dispatch("broadcast", {
+        seq: this.sequence,
+        mutation: { tool: 11, type: 6, id: "", socket: message.sender },
+      });
+      return;
+    }
+    if (message.type === "board.recovered") {
+      const admin = isAdminPath(location.pathname) && Boolean(activeAdminToken);
+      this.dispatch("boardstate", {
+        canEdit: true,
+        canWrite: true,
+        canClear: admin,
+        canBan: false,
+        canReport: false,
+      });
+      return;
+    }
     if (message.type === "error") {
       const operation = message.mutationId
         ? this.inflight.get(message.mutationId)
@@ -345,7 +391,8 @@ export class CloudflareSocket {
       this.lastDeleteMutation = null;
       if (
         message.code === "read_only_degraded" ||
-        message.code === "storage_failure"
+        message.code === "storage_failure" ||
+        message.code === "board_full"
       ) {
         this.dispatch("boardstate", {
           canEdit: false,

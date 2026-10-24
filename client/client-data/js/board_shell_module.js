@@ -148,11 +148,15 @@ export class BoardShellModule {
     const positionStylePanel = () => {
       if (document.body.classList.contains("bwa-skin")) {
         const mobile = window.matchMedia("(max-width: 600px)").matches;
+        const menu = document.getElementById("menu");
+        const desktopLeft = menu
+          ? `${Math.round(menu.getBoundingClientRect().right + 12)}px`
+          : "120px";
         Object.assign(stylePanel.style, {
           top: mobile ? "auto" : "328px",
           right: "auto",
           bottom: mobile ? "100px" : "auto",
-          left: mobile ? "38px" : "120px",
+          left: mobile ? "38px" : desktopLeft,
           width: mobile ? "calc(100vw - 76px)" : "300px",
         });
         return;

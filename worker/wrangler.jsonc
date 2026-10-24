@@ -3,6 +3,11 @@
   "name": "bwa-unfinished-archive-v2",
   "main": "src/index.js",
   "compatibility_date": "2026-10-23",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "doodle.bloodweavearchive.com", "custom_domain": true },
+    { "pattern": "admin-doodle.bloodweavearchive.com", "custom_domain": true }
+  ],
   "durable_objects": {
     "bindings": [
       {

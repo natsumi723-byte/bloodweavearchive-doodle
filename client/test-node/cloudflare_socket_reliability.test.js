@@ -180,3 +180,64 @@ test("Cloudflare adapter uses a distinct Access-protected route for admins", asy
     global.localStorage = previousLocalStorage;
   }
 });
+
+test("Cloudflare adapter exposes and sends delete-all only for an unlocked admin", async () => {
+  const globalAny = /** @type {any} */ (global);
+  const previousWebSocket = global.WebSocket;
+  const previousLocation = global.location;
+  const previousWindow = global.window;
+  const previousDocument = global.document;
+  const previousSessionStorage = global.sessionStorage;
+  const previousLocalStorage = global.localStorage;
+  const listeners = new Map();
+  /** @type {any[]} */
+  const sent = [];
+  /** @type {any[]} */
+  const states = [];
+  globalAny.location = { pathname: "/admin/archive" };
+  globalAny.window = { prompt: () => "admin-secret", addEventListener() {} };
+  globalAny.document = { addEventListener() {}, visibilityState: "visible" };
+  globalAny.sessionStorage = { removeItem() {} };
+  globalAny.localStorage = { getItem: () => "A".repeat(43), setItem() {} };
+  globalAny.WebSocket = class {
+    static OPEN = 1;
+    constructor() {
+      this.readyState = 1;
+    }
+    /** @param {string} name @param {Function} callback */
+    addEventListener(name, callback) {
+      listeners.set(name, callback);
+    }
+    /** @param {string} value */
+    send(value) {
+      sent.push(JSON.parse(value));
+    }
+    close() {}
+  };
+  try {
+    const { CloudflareSocket } = await import(
+      `../client-data/js/cloudflare_socket_adapter.js?admin-clear=${Date.now()}`
+    );
+    const socket = new CloudflareSocket("https://worker.invalid", "archive");
+    socket.on("boardstate", (/** @type {any} */ state) => states.push(state));
+    socket.connect();
+    listeners.get("open")();
+    assert.equal(states[states.length - 1].canClear, true);
+    socket.emit("broadcast", {
+      tool: 11,
+      type: 6,
+      id: "",
+      clientMutationId: "cm-admin-clear-123456",
+    });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].type, "admin.delete_all");
+    assert.match(sent[0].mutationId, /^mutation_/);
+  } finally {
+    globalAny.WebSocket = previousWebSocket;
+    globalAny.location = previousLocation;
+    globalAny.window = previousWindow;
+    globalAny.document = previousDocument;
+    globalAny.sessionStorage = previousSessionStorage;
+    globalAny.localStorage = previousLocalStorage;
+  }
+});

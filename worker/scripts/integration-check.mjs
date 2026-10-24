@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
+import WebSocket from "ws";
 
 const endpoint = process.argv[2] || "ws://127.0.0.1:5042/api/boards/integration-check/socket";
 const tokenA = "A".repeat(43);
 const tokenB = "B".repeat(43);
+const adminSecret = process.env.INTEGRATION_ADMIN_SECRET;
+if (!adminSecret) throw new Error("INTEGRATION_ADMIN_SECRET_required");
 
 function connect(token, admin = null) {
   return new Promise((resolve, reject) => {
     const protocols = ["bwa-v2", `owner.${token}`];
     if (admin) protocols.push(`admin.${admin}`);
-    const socket = new WebSocket(endpoint, protocols);
+    const target = admin
+      ? endpoint.replace("/api/boards/", "/api/admin/boards/")
+      : endpoint;
+    const socket = new WebSocket(target, protocols, {
+      origin: process.env.INTEGRATION_ORIGIN || "http://127.0.0.1:5043",
+    });
     socket.addEventListener("open", () => resolve(socket), { once: true });
     socket.addEventListener("error", reject, { once: true });
   });
@@ -71,7 +79,7 @@ a.send(JSON.stringify({
   payload: { tool: "pencil", points: [[5, 6], [7, 8]] },
 }));
 await new Promise((resolve) => setTimeout(resolve, 100));
-const admin = await connect("C".repeat(43), "local-admin-bwa-v2-secret-at-least-32-characters");
+const admin = await connect("C".repeat(43), adminSecret);
 await new Promise((resolve) => setTimeout(resolve, 100));
 const adminDeletion = nextMessage(b);
 admin.send(JSON.stringify({

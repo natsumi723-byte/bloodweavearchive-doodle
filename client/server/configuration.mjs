@@ -176,6 +176,32 @@ export const CORRESPONDING_SOURCE_URL = parseStringEnv(
   IS_DEVELOPMENT ? "https://github.com/lovasoa/whitebophir" : "",
 );
 
+/** Secure Cloudflare Worker WebSocket origin used by the BWA board client. */
+export const CLOUDFLARE_BACKEND_URL = parseStringEnv(
+  "WBO_CLOUDFLARE_BACKEND_URL",
+  IS_DEVELOPMENT ? "ws://127.0.0.1:5042" : "",
+);
+
+if (!IS_DEVELOPMENT) {
+  let backendUrl;
+  try {
+    backendUrl = new URL(CLOUDFLARE_BACKEND_URL);
+  } catch {
+    throw new Error(
+      "WBO_CLOUDFLARE_BACKEND_URL must be an absolute wss:// URL in production.",
+    );
+  }
+  if (
+    backendUrl.protocol !== "wss:" ||
+    backendUrl.username ||
+    backendUrl.password
+  ) {
+    throw new Error(
+      "WBO_CLOUDFLARE_BACKEND_URL must be an absolute wss:// URL in production.",
+    );
+  }
+}
+
 if (
   !IS_DEVELOPMENT &&
   (!CORRESPONDING_SOURCE_URL ||

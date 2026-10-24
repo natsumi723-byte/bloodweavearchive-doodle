@@ -1,6 +1,18 @@
 import { VIEWPORT_LAYOUT_EVENT } from "./board_viewport.js";
 import { currentAdminToken, isAdminPath } from "./cloudflare_socket_adapter.js";
 
+/** @param {string} key @param {string} fallback */
+function t(key, fallback) {
+  try {
+    const catalog = JSON.parse(
+      document.getElementById("translations")?.textContent || "{}",
+    );
+    return catalog[key] || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * @param {HTMLElement | null} element
  * @param {() => void | Promise<void>} callback
@@ -46,7 +58,8 @@ function installAdminDataControls() {
       headers: headers(),
       credentials: "include",
     });
-    if (!response.ok) return window.alert("Export failed");
+    if (!response.ok)
+      return window.alert(t("admin_export_failed", "Export failed"));
     const blob = await response.blob();
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -59,7 +72,12 @@ function installAdminDataControls() {
     const file = restoreFile.files?.[0];
     if (
       !file ||
-      !window.confirm("Replace this board with the selected verified backup?")
+      !window.confirm(
+        t(
+          "admin_restore_confirmation",
+          "Replace this board with the selected verified backup?",
+        ),
+      )
     )
       return;
     const response = await fetch(`${endpoint}/restore`, {
@@ -68,13 +86,17 @@ function installAdminDataControls() {
       credentials: "include",
       body: await file.text(),
     });
-    if (!response.ok) return window.alert("Restore failed");
+    if (!response.ok)
+      return window.alert(t("admin_restore_failed", "Restore failed"));
     location.reload();
   });
   activateWithKeyboard(purgeControl, async () => {
     if (
       !window.confirm(
-        "Permanently purge records deleted more than 30 days ago?",
+        t(
+          "admin_purge_confirmation",
+          "Permanently purge records deleted more than 30 days ago?",
+        ),
       )
     )
       return;
@@ -83,7 +105,11 @@ function installAdminDataControls() {
       headers: headers(),
       credentials: "include",
     });
-    window.alert(response.ok ? "Old records purged" : "Purge failed");
+    window.alert(
+      response.ok
+        ? t("admin_purge_succeeded", "Old records purged")
+        : t("admin_purge_failed", "Purge failed"),
+    );
   });
 }
 

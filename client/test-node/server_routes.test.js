@@ -960,6 +960,9 @@ test("admin data controls render only on the separate admin board route", async 
       assert.doesNotMatch(publicResponse.body, new RegExp(`id="${controlId}"`));
       assert.match(adminResponse.body, new RegExp(`id="${controlId}"`));
     }
+    assert.match(publicResponse.body, /id="toolID-clear"[^>]*hidden/);
+    assert.match(adminResponse.body, /id="toolID-clear"/);
+    assert.doesNotMatch(adminResponse.body, /id="toolID-clear"[^>]*hidden/);
     assert.match(adminResponse.body, />导出备份</);
     assert.match(adminResponse.body, />恢复备份</);
     assert.match(adminResponse.body, />清理旧记录</);

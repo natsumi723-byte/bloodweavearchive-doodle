@@ -8,9 +8,15 @@
     "dev": "wrangler dev",
     "check": "node --check src/index.js && node --test test/*.test.js",
     "test": "node --test test/*.test.js",
-    "check:backup-integration": "node scripts/backup-integration-check.mjs"
+    "check:backup-integration": "node scripts/backup-integration-check.mjs",
+    "check:lost-ack-integration": "node scripts/lost-ack-integration-check.mjs",
+    "check:storage-degradation": "node scripts/storage-degradation-integration-check.mjs"
   },
   "devDependencies": {
-    "wrangler": "^4.45.0"
+    "wrangler": "^4.45.0",
+    "ws": "^8.22.0"
+  },
+  "dependencies": {
+    "jose": "^6.2.13"
   }
 }

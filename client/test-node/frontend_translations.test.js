@@ -22,6 +22,15 @@ test("BWA board locales own every administrator action label", () => {
     "admin_export_backup",
     "admin_restore_backup",
     "admin_purge_old_records",
+    "admin_unlock_title",
+    "admin_secret_prompt",
+    "admin_unlock_submit",
+    "admin_export_failed",
+    "admin_restore_confirmation",
+    "admin_restore_failed",
+    "admin_purge_confirmation",
+    "admin_purge_succeeded",
+    "admin_purge_failed",
   ];
   for (const locale of ["en", "zh-CN"]) {
     for (const key of adminKeys) {

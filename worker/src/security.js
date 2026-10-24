@@ -1,3 +1,5 @@
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
 const ADMIN_ROUTE = /^\/api\/admin\/boards\/([^/]+)\/socket$/;
 const PUBLIC_ROUTE = /^\/api\/boards\/([^/]+)\/socket$/;
 const ADMIN_DATA_ROUTE = /^\/api\/admin\/boards\/([^/]+)\/(export|restore|purge)$/;
@@ -8,7 +10,6 @@ export function parseAllowedOrigins(value) {
     .map((origin) => origin.trim().replace(/\/$/, ""))
     .filter(Boolean));
 }
-
 export function originAllowed(request, env, admin = false) {
   const origin = request.headers.get("Origin");
   if (!origin) return env.ALLOW_MISSING_ORIGIN === "true";
@@ -36,7 +37,21 @@ export function hasAdminProtocol(request) {
     .some((value) => value.trim().startsWith("admin."));
 }
 
-export function hasAccessAssertion(request, env = {}) {
-  return Boolean(request.headers.get("Cf-Access-Jwt-Assertion")?.trim()) ||
-    env.ALLOW_MISSING_ACCESS_ASSERTION === "true";
+export async function hasAccessAssertion(request, env = {}) {
+  if (env.ALLOW_MISSING_ACCESS_ASSERTION === "true") return true;
+  const token = request.headers.get("Cf-Access-Jwt-Assertion")?.trim();
+  const issuer = String(env.ACCESS_TEAM_DOMAIN || "").replace(/\/$/, "");
+  const audience = String(env.ACCESS_POLICY_AUD || "").trim();
+  if (!token || !issuer.startsWith("https://") || !audience) return false;
+  try {
+    const jwks = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
+    await jwtVerify(token, jwks, {
+      issuer,
+      audience,
+      algorithms: ["RS256"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

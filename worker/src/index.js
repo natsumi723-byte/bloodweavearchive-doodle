@@ -37,6 +37,7 @@ export class BoardRoom extends DurableObject {
       value INTEGER NOT NULL
     )`);
     this.sql.exec("INSERT OR IGNORE INTO board_meta (key, value) VALUES ('sequence', 0)");
+    this.sql.exec("INSERT OR IGNORE INTO board_meta (key, value) VALUES ('write_degraded', 0)");
   }
 
   async fetch(request) {
@@ -63,6 +64,10 @@ export class BoardRoom extends DurableObject {
     const dropAckOnce = this.env.ENABLE_TEST_FAULTS === "true" &&
       boardId.startsWith("qa-lost-ack-");
     server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce });
+    const degraded = this.isBoardDegraded();
+    if (degraded) {
+      server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce, degraded: true });
+    }
     const rows = [...this.sql.exec(
       "SELECT id, payload, sequence FROM strokes WHERE deleted_at IS NULL ORDER BY sequence",
     )];
@@ -70,6 +75,7 @@ export class BoardRoom extends DurableObject {
       type: "snapshot",
       items: rows.map((row) => ({ id: row.id, payload: JSON.parse(row.payload), sequence: row.sequence })),
     }));
+    if (degraded) server.send(errorFrame("read_only_degraded"));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -150,7 +156,7 @@ export class BoardRoom extends DurableObject {
       this.broadcast(message, socket);
       return;
     }
-    if (attachment.degraded) {
+    if (attachment.degraded && !(attachment.isAdmin && message.type === "admin.delete_all")) {
       socket.send(errorFrame("read_only_degraded", message.mutationId));
       return;
     }
@@ -181,6 +187,7 @@ export class BoardRoom extends DurableObject {
         return { ...applied, dropAck };
       });
       if (result.event) this.broadcast(result.event, socket);
+      if (message.type === "admin.delete_all") this.markBoardRecovered();
       if (result.dropAck) {
         socket.close(1012, "test_drop_ack_once");
         return;
@@ -188,8 +195,8 @@ export class BoardRoom extends DurableObject {
       socket.send(JSON.stringify(result.ack));
     } catch (error) {
       const code = error instanceof MutationError ? error.code : "storage_failure";
-      if (!(error instanceof MutationError)) {
-        socket.serializeAttachment({ ...attachment, degraded: true });
+      if (!(error instanceof MutationError) || code === "board_full") {
+        this.markBoardDegraded(code);
       }
       socket.send(errorFrame(code, message.mutationId));
     }
@@ -204,6 +211,7 @@ export class BoardRoom extends DurableObject {
         "SELECT COUNT(*) AS count FROM strokes WHERE deleted_at IS NULL",
       )][0].count;
       this.sql.exec("UPDATE strokes SET deleted_at = ? WHERE deleted_at IS NULL", deletedAt);
+      this.setBoardDegraded(false);
       const ack = {
         type: "mutation.ack",
         mutationId: message.mutationId,
@@ -256,8 +264,13 @@ export class BoardRoom extends DurableObject {
           sequence,
           now,
         );
-      } catch {
-        throw new MutationError("duplicate_item");
+      } catch (error) {
+        const duplicate = [...this.sql.exec(
+          "SELECT 1 AS present FROM strokes WHERE id = ?",
+          message.id,
+        )][0];
+        if (duplicate) throw new MutationError("duplicate_item");
+        throw error;
       }
       const ack = this.createAck(message, sequence);
       this.recordMutation(attachment, message, ack);
@@ -281,6 +294,36 @@ export class BoardRoom extends DurableObject {
   nextSequence() {
     this.sql.exec("UPDATE board_meta SET value = value + 1 WHERE key = 'sequence'");
     return [...this.sql.exec("SELECT value FROM board_meta WHERE key = 'sequence'")][0].value;
+  }
+
+  isBoardDegraded() {
+    return Number([...this.sql.exec(
+      "SELECT value FROM board_meta WHERE key = 'write_degraded'",
+    )][0]?.value || 0) === 1;
+  }
+
+  setBoardDegraded(degraded) {
+    this.sql.exec(
+      "UPDATE board_meta SET value = ? WHERE key = 'write_degraded'",
+      degraded ? 1 : 0,
+    );
+  }
+
+  markBoardDegraded(code = "storage_failure") {
+    try { this.setBoardDegraded(true); } catch {}
+    for (const peer of this.ctx.getWebSockets()) {
+      const attachment = peer.deserializeAttachment() || {};
+      peer.serializeAttachment({ ...attachment, degraded: true });
+      try { peer.send(errorFrame(code)); } catch {}
+    }
+  }
+
+  markBoardRecovered() {
+    for (const peer of this.ctx.getWebSockets()) {
+      const attachment = peer.deserializeAttachment() || {};
+      peer.serializeAttachment({ ...attachment, degraded: false });
+      try { peer.send(JSON.stringify({ type: "board.recovered" })); } catch {}
+    }
   }
 
   createAck(message, sequence) {
@@ -336,7 +379,7 @@ export default {
     const dataRoute = adminDataRoute(url.pathname);
     if (dataRoute) {
       if (!originAllowed(request, env, true)) return jsonResponse({ error: "origin_not_allowed" }, 403);
-      if (!hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
+      if (!await hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
       const bearer = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
       if (!await verifySecret(bearer, env.ADMIN_SECRET)) return jsonResponse({ error: "invalid_admin_secret" }, 403);
       const boardId = normalizeBoardId(dataRoute.board);
@@ -373,7 +416,7 @@ export default {
       return jsonResponse({ error: "origin_not_allowed" }, 403);
     }
     if (route.admin) {
-      if (!hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
+      if (!await hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
       if (!hasAdminProtocol(request)) return jsonResponse({ error: "admin_secret_required" }, 401);
     } else if (hasAdminProtocol(request)) {
       return jsonResponse({ error: "admin_route_required" }, 403);

@@ -349,6 +349,7 @@ class Template extends StaticTemplate {
       configuration,
       moderator,
       correspondingSourceUrl: this.serverConfig.CORRESPONDING_SOURCE_URL,
+      cloudflareBackendUrl: this.serverConfig.CLOUDFLARE_BACKEND_URL,
       htmlHeadSnippet: this.htmlHeadSnippet,
       ...extraParams,
       appVersion: packageJson.version,
@@ -492,10 +493,9 @@ class BoardTemplate extends Template {
       })
     );
     params.tools = renderedTools.map((tool) => {
-      const visible = boardStateGrantsCapability(
-        params.boardState,
-        tool.requiredCapability,
-      );
+      const visible =
+        (params.isAdminBoard && tool.toolId === "clear") ||
+        boardStateGrantsCapability(params.boardState, tool.requiredCapability);
       const iconUrl = `../${tool.iconPath}`;
       return {
         id: tool.toolId,
