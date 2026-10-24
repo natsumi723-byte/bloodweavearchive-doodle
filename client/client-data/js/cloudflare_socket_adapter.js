@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { TOOL_CODE_BY_ID } from "../tools/tool-order.js";
-
 const listenersSymbol = Symbol("listeners");
+const ERASER_TOOL_CODE = 6;
+const CLEAR_TOOL_CODE = 11;
 let activeAdminToken = null;
 let adminLockInstalled = false;
 let adminWindowBlurred = false;
@@ -368,7 +368,7 @@ export class CloudflareSocket {
       this.dispatch("broadcast", {
         seq: this.sequence,
         mutation: {
-          tool: TOOL_CODE_BY_ID.eraser,
+          tool: ERASER_TOOL_CODE,
           type: 3,
           id: message.id,
           socket: message.sender,
@@ -384,7 +384,7 @@ export class CloudflareSocket {
       this.dispatch("broadcast", {
         seq: this.sequence,
         mutation: {
-          tool: TOOL_CODE_BY_ID.clear,
+          tool: CLEAR_TOOL_CODE,
           type: 6,
           id: "",
           socket: message.sender,
