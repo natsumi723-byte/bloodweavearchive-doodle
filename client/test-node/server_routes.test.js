@@ -849,6 +849,10 @@ test("board pages are no-store in development and render plain asset URLs", asyn
       frenchResponse.body,
       /<meta property="og:title" content="cache-test \| WBO \| Collaborative whiteboard" \/>/,
     );
+    assert.match(
+      response.body,
+      /<title>Shared Notes · An Archive for Everyone \| Bloodweave Archive<\/title>/,
+    );
     assert.match(response.body, /\.\.\/board\.css(?:["'])/);
     assert.match(response.body, new RegExp(`href="${correspondingSourceUrl}"`));
     assert.match(response.body, /\.\.\/js\/board_main\.js(?:["'])/);
@@ -964,6 +968,10 @@ test("admin data controls render only on the separate admin board route", async 
     assert.match(adminResponse.body, /id="toolID-clear"/);
     assert.doesNotMatch(adminResponse.body, /id="toolID-clear"[^>]*hidden/);
     assert.match(adminResponse.body, />导出备份</);
+    assert.match(
+      adminResponse.body,
+      /<title>众人手记 · 属于大家的档案｜Bloodweave Archive<\/title>/,
+    );
     assert.match(adminResponse.body, />恢复备份</);
     assert.match(adminResponse.body, />清理旧记录</);
     assert.match(

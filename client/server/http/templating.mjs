@@ -41,6 +41,11 @@ const TRANSLATIONS = JSON.parse(
 );
 
 const BWA_BOARD_LANGUAGES = ["en", "zh-CN"];
+/** @type {Record<string, string>} */
+const BWA_BOARD_TITLES = {
+  en: "Shared Notes · An Archive for Everyone | Bloodweave Archive",
+  "zh-CN": "众人手记 · 属于大家的档案｜Bloodweave Archive",
+};
 // The inherited catalog remains available for isolated upstream regression
 // tests, but the BWA deployment exposes only its two supported locales.
 const languages = BWA_BOARD_LANGUAGES;
@@ -477,6 +482,7 @@ class BoardTemplate extends Template {
     ).href;
     params.boardUriComponent = boardUriComponent;
     params.board = decodeURIComponent(boardUriComponent);
+    params.pageTitle = BWA_BOARD_TITLES[params.language] || BWA_BOARD_TITLES.en;
     params.canonicalUrl = localizedUrl(boardBaseUrl, params.language);
     params.languageLinks = localizedLinks(params.languages, (linkLanguage) =>
       localizedUrl(boardBaseUrl, linkLanguage),
