@@ -71,6 +71,56 @@ test("Cloudflare adapter resolves a durable batch only after its ACK", async () 
   }
 });
 
+test("Cloudflare adapter persists hand-batch text transforms by item id", async () => {
+  const previousWebSocket = global.WebSocket;
+  global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
+  try {
+    const { CloudflareSocket } = await import(
+      "../client-data/js/cloudflare_socket_adapter.js"
+    );
+    const socket = new CloudflareSocket(
+      "https://example.invalid",
+      "test-board",
+    );
+    /** @type {any[]} */
+    const sent = [];
+    socket.ws = /** @type {any} */ ({
+      readyState: 1,
+      send(/** @type {string} */ value) {
+        sent.push(JSON.parse(value));
+      },
+    });
+
+    socket.emit("broadcast", {
+      tool: 4,
+      _children: [
+        {
+          type: 2,
+          id: "text_12345678",
+          transform: { a: 1, b: 0, c: 0, d: 1, e: 120, f: 80 },
+        },
+      ],
+      clientMutationId: "cm-hand-text-123456789",
+    });
+    socket.flushItem("text_12345678");
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].type, "stroke.commit");
+    assert.equal(sent[0].id, "text_12345678");
+    assert.deepEqual(sent[0].payload.mutations, [
+      {
+        type: 2,
+        id: "text_12345678",
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 120, f: 80 },
+        clientMutationId: "cm-hand-text-123456789",
+        cloudflareMutationId: sent[0].mutationId,
+      },
+    ]);
+  } finally {
+    global.WebSocket = previousWebSocket;
+  }
+});
+
 test("Cloudflare adapter requests retry and exposes read-only storage failure", async () => {
   const { CloudflareSocket } = await import(
     "../client-data/js/cloudflare_socket_adapter.js"

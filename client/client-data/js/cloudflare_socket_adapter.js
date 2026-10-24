@@ -241,6 +241,17 @@ export class CloudflareSocket {
 
   emit(name, message) {
     if (name !== "broadcast" || !message) return;
+    if (Array.isArray(message._children)) {
+      for (const child of message._children) {
+        this.emit("broadcast", {
+          ...child,
+          ...(child.clientMutationId || !message.clientMutationId
+            ? {}
+            : { clientMutationId: message.clientMutationId }),
+        });
+      }
+      return;
+    }
     const type = Number(message.type);
     if (type === 6) {
       if (!isAdminPath(location.pathname) || !activeAdminToken) {
@@ -269,7 +280,7 @@ export class CloudflareSocket {
       );
       return;
     }
-    const itemId = String(message.parent || message.id || "");
+    const itemId = String(message.newid || message.parent || message.id || "");
     if (!itemId) return;
     const batch = this.pending.get(itemId) || [];
     batch.push(message);
