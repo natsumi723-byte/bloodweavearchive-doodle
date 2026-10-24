@@ -52,18 +52,18 @@ export class MessageModule {
 
   newUnreadMessage() {
     this.unreadCount++;
-    updateDocumentTitle(this, this.#identity);
+    updateDocumentTitle(this);
   }
 }
 
 /**
  * @param {MessageModule} messages
- * @param {AppIdentityModule} identity
  */
-export function updateDocumentTitle(messages, identity) {
+export function updateDocumentTitle(messages) {
+  const readerFacingTitle = document.title.replace(/^\(\d+\)\s+/, "");
   document.title =
     (messages.unreadCount ? `(${messages.unreadCount}) ` : "") +
-    `${identity.boardName} | WBO`;
+    readerFacingTitle;
 }
 
 /**

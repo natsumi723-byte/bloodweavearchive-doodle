@@ -14,7 +14,10 @@ const { TOOL_CODE_BY_ID } = require("../client-data/tools/tool-order.js");
 const {
   installBrowserHarnessForTest,
 } = require("./helpers/browser_harness.js");
-const { MessageModule } = require("../client-data/js/board_message_module.js");
+const {
+  MessageModule,
+  updateDocumentTitle,
+} = require("../client-data/js/board_message_module.js");
 const PencilTool = require("../client-data/tools/pencil/index.js");
 const RectangleTool = require("../client-data/tools/rectangle/index.js");
 const ShapeTool = require("../client-data/tools/shape_tool.js");
@@ -41,6 +44,22 @@ const { MutationType } = MessageToolMetadata;
 
 const globalAny = /** @type {any} */ (global);
 const getBrowserHarness = installBrowserHarnessForTest(test);
+
+test("unread counts preserve the reader-facing BWA document title", () => {
+  const harness = createHarness();
+  document.title = "众人手记 · 属于大家的档案｜Bloodweave Archive";
+  updateDocumentTitle(/** @type {any} */ ({ unreadCount: 3 }));
+  assert.equal(
+    document.title,
+    "(3) 众人手记 · 属于大家的档案｜Bloodweave Archive",
+  );
+  updateDocumentTitle(/** @type {any} */ ({ unreadCount: 4 }));
+  assert.equal(
+    document.title,
+    "(4) 众人手记 · 属于大家的档案｜Bloodweave Archive",
+  );
+  harness.time.flushUntilIdle();
+});
 
 /**
  * @param {PathSegment[]} pathData

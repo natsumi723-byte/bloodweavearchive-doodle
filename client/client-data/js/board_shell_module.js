@@ -407,7 +407,7 @@ export class BoardShellModule {
     window.addEventListener("focus", () => {
       const Tools = this.getTools();
       Tools.messages.unreadCount = 0;
-      updateDocumentTitle(Tools.messages, Tools.identity);
+      updateDocumentTitle(Tools.messages);
       if (Tools.writes.bufferedWrites.length > 0) {
         Tools.writes.pumpBufferedWrites();
       }
