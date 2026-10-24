@@ -163,6 +163,7 @@ export class CloudflareSocket {
     this[listenersSymbol] = new Map();
     this.pending = new Map();
     this.inflight = new Map();
+    this.batchGroups = new Map();
     this.flushTimers = new Map();
     this.sequence = 0;
     this.lastDeleteMutation = null;
@@ -242,14 +243,7 @@ export class CloudflareSocket {
   emit(name, message) {
     if (name !== "broadcast" || !message) return;
     if (Array.isArray(message._children)) {
-      for (const child of message._children) {
-        this.emit("broadcast", {
-          ...child,
-          ...(child.clientMutationId || !message.clientMutationId
-            ? {}
-            : { clientMutationId: message.clientMutationId }),
-        });
-      }
+      this.sendDurableBatch(message);
       return;
     }
     const type = Number(message.type);
@@ -292,6 +286,52 @@ export class CloudflareSocket {
     );
   }
 
+  sendDurableBatch(message) {
+    const clientMutationId = message.clientMutationId || null;
+    const groupId =
+      clientMutationId ||
+      message.cloudflareBatchId ||
+      `batch_${crypto.randomUUID().replaceAll("-", "")}`;
+    message.cloudflareBatchId = groupId;
+    let group = this.batchGroups.get(groupId);
+    if (!group) {
+      group = {
+        clientMutationId,
+        mutationIds: new Set(),
+        acknowledged: new Set(),
+        rejected: false,
+      };
+      this.batchGroups.set(groupId, group);
+    }
+    for (const child of message._children) {
+      if (child.tool === undefined && message.tool !== undefined)
+        child.tool = message.tool;
+      const itemId = String(child.newid || child.parent || child.id || "");
+      if (!itemId) continue;
+      // Preserve websocket ordering when a newly-created item is moved before
+      // its normal debounce window has flushed.
+      this.flushItem(itemId);
+      const mutationId = this.stableMutationId([child]);
+      group.mutationIds.add(mutationId);
+      const {
+        clientMutationId: _clientMutationId,
+        cloudflareMutationId: _cloudflareMutationId,
+        ...authoritativeMutation
+      } = child;
+      this.sendDurableMutation(
+        {
+          type: "stroke.commit",
+          mutationId,
+          id: itemId,
+          sender: this.id,
+          payload: { mutations: [authoritativeMutation] },
+        },
+        [],
+        groupId,
+      );
+    }
+  }
+
   flushItem(itemId) {
     clearTimeout(this.flushTimers.get(itemId));
     this.flushTimers.delete(itemId);
@@ -325,12 +365,16 @@ export class CloudflareSocket {
     return mutationId;
   }
 
-  sendDurableMutation(frame, clientMutationIds) {
+  sendDurableMutation(frame, clientMutationIds, batchGroupId = null) {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       this.dispatch("mutation_retry");
       return false;
     }
-    this.inflight.set(frame.mutationId, { frame, clientMutationIds });
+    this.inflight.set(frame.mutationId, {
+      frame,
+      clientMutationIds,
+      batchGroupId,
+    });
     this.ws.send(JSON.stringify(frame));
     return true;
   }
@@ -360,6 +404,20 @@ export class CloudflareSocket {
       const operation = this.inflight.get(message.mutationId);
       if (!operation) return;
       this.inflight.delete(message.mutationId);
+      if (operation.batchGroupId) {
+        const group = this.batchGroups.get(operation.batchGroupId);
+        if (!group || group.rejected) return;
+        group.acknowledged.add(message.mutationId);
+        if (group.acknowledged.size < group.mutationIds.size) return;
+        this.batchGroups.delete(operation.batchGroupId);
+        this.dispatch("mutation_accepted", {
+          mutationId: operation.batchGroupId,
+          clientMutationIds: [group.clientMutationId].filter(Boolean),
+          sequence: message.sequence,
+          duplicate: message.duplicate === true,
+        });
+        return;
+      }
       this.dispatch("mutation_accepted", {
         mutationId: message.mutationId,
         clientMutationIds: operation.clientMutationIds,
@@ -437,6 +495,18 @@ export class CloudflareSocket {
           canBan: false,
           canReport: false,
         });
+      }
+      if (operation?.batchGroupId) {
+        const group = this.batchGroups.get(operation.batchGroupId);
+        if (group && !group.rejected) {
+          group.rejected = true;
+          this.batchGroups.delete(operation.batchGroupId);
+          this.dispatch("mutation_rejected", {
+            reason: message.code,
+            clientMutationIds: [group.clientMutationId].filter(Boolean),
+          });
+        }
+        return;
       }
       this.dispatch("mutation_rejected", {
         reason: message.code,
