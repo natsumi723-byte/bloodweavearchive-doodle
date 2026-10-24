@@ -16,6 +16,9 @@ npm test
 npm run deploy:dry-run
 ```
 
+The deploy scripts install the client package's locked production dependencies
+because the renderer reuses the audited client templates directly.
+
 ## Production order
 
 1. Deploy `worker/` with its documented secrets and release variables.
