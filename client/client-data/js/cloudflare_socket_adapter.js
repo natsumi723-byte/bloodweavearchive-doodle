@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { TOOL_CODE_BY_ID } from "../tools/tool-order.js";
+
 const listenersSymbol = Symbol("listeners");
 let activeAdminToken = null;
 let adminLockInstalled = false;
@@ -365,7 +367,12 @@ export class CloudflareSocket {
       this.sequence += 1;
       this.dispatch("broadcast", {
         seq: this.sequence,
-        mutation: { tool: 1, type: 3, id: message.id, socket: message.sender },
+        mutation: {
+          tool: TOOL_CODE_BY_ID.eraser,
+          type: 3,
+          id: message.id,
+          socket: message.sender,
+        },
       });
       return;
     }
@@ -376,7 +383,12 @@ export class CloudflareSocket {
       );
       this.dispatch("broadcast", {
         seq: this.sequence,
-        mutation: { tool: 11, type: 6, id: "", socket: message.sender },
+        mutation: {
+          tool: TOOL_CODE_BY_ID.clear,
+          type: 6,
+          id: "",
+          socket: message.sender,
+        },
       });
       return;
     }

@@ -99,6 +99,37 @@ test("Cloudflare adapter requests retry and exposes read-only storage failure", 
   assert.equal(states[states.length - 1].canEdit, false);
 });
 
+test("Cloudflare adapter replays a peer deletion through the eraser tool", async () => {
+  const { CloudflareSocket } = await import(
+    "../client-data/js/cloudflare_socket_adapter.js"
+  );
+  const socket = new CloudflareSocket("https://example.invalid", "test-board");
+  /** @type {any[]} */
+  const broadcasts = [];
+  socket.on("broadcast", (/** @type {any} */ payload) =>
+    broadcasts.push(payload),
+  );
+
+  socket.receive({
+    type: "stroke.delete",
+    id: "stroke_erased_by_peer",
+    sender: "socket-user-a",
+    sequence: 9,
+  });
+
+  assert.deepEqual(broadcasts, [
+    {
+      seq: 1,
+      mutation: {
+        tool: 6,
+        type: 3,
+        id: "stroke_erased_by_peer",
+        socket: "socket-user-a",
+      },
+    },
+  ]);
+});
+
 test("Cloudflare adapter reuses the mutation id after a lost ACK and reconnect", async () => {
   const previousWebSocket = global.WebSocket;
   global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
