@@ -64,19 +64,70 @@ function fitExportToDrawing(source, target) {
     return;
   }
 
+  const paintExpansion = getPaintExpansion(drawingArea);
   const padding = EXPORT_PADDING_PX / DEFAULT_BOARD_SCALE;
-  const minX = Math.floor(bounds.x - padding);
-  const minY = Math.floor(bounds.y - padding);
-  const viewBoxWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
-  const viewBoxHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
-  const width = Math.max(1, Math.ceil(viewBoxWidth * DEFAULT_BOARD_SCALE));
-  const height = Math.max(1, Math.ceil(viewBoxHeight * DEFAULT_BOARD_SCALE));
+  const minX = Math.floor(bounds.x - paintExpansion.x - padding);
+  const minY = Math.floor(bounds.y - paintExpansion.y - padding);
+  const maxX = Math.ceil(
+    bounds.x + bounds.width + paintExpansion.x + padding,
+  );
+  const maxY = Math.ceil(
+    bounds.y + bounds.height + paintExpansion.y + padding,
+  );
+  const viewBoxWidth = Math.max(1, maxX - minX);
+  const viewBoxHeight = Math.max(1, maxY - minY);
+  const width = viewBoxWidth * DEFAULT_BOARD_SCALE;
+  const height = viewBoxHeight * DEFAULT_BOARD_SCALE;
   target.setAttribute(
     "viewBox",
     `${minX} ${minY} ${viewBoxWidth} ${viewBoxHeight}`,
   );
-  target.setAttribute("width", String(width));
-  target.setAttribute("height", String(height));
+  target.setAttribute("width", formatExportDimension(width));
+  target.setAttribute("height", formatExportDimension(height));
+}
+
+/** @param {number} value */
+function formatExportDimension(value) {
+  return value.toFixed(6).replace(/(?:\.0+|(\.\d*?)0+)$/, "$1");
+}
+
+/**
+ * Chromium's default getBBox() excludes strokes. Derive a conservative paint
+ * expansion from every rendered descendant, including transform scaling and
+ * the SVG miter-limit bound. Supported board content has no filters or markers.
+ * @param {SVGGraphicsElement} drawingArea
+ * @returns {{x: number, y: number}}
+ */
+function getPaintExpansion(drawingArea) {
+  let x = 0;
+  let y = 0;
+  const rootMatrix = drawingArea.getCTM();
+  if (!rootMatrix) return { x, y };
+
+  for (const element of drawingArea.querySelectorAll("*")) {
+    if (!(element instanceof SVGGraphicsElement)) continue;
+    const style = getComputedStyle(element);
+    if (style.stroke === "none" || Number(style.strokeOpacity) === 0) continue;
+    const strokeWidth = Number.parseFloat(style.strokeWidth);
+    if (!Number.isFinite(strokeWidth) || strokeWidth <= 0) continue;
+
+    const matrix = element.getCTM();
+    if (!matrix) continue;
+    let relative;
+    try {
+      relative = rootMatrix.inverse().multiply(matrix);
+    } catch {
+      continue;
+    }
+    const miterLimit =
+      style.strokeLinejoin === "miter"
+        ? Math.max(1, Number.parseFloat(style.strokeMiterlimit) || 4)
+        : 1;
+    const radius = (strokeWidth / 2) * miterLimit;
+    x = Math.max(x, radius * Math.hypot(relative.a, relative.c));
+    y = Math.max(y, radius * Math.hypot(relative.b, relative.d));
+  }
+  return { x, y };
 }
 
 /**

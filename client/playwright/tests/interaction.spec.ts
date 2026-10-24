@@ -1012,10 +1012,86 @@ test.describe("single-page interactions", () => {
         hasSvgTag: true,
         hasRect: true,
         hasBoardStyles: true,
-        viewBox: "760 760 1080 880",
-        width: "108",
-        height: "88",
+        viewBox: "680 680 1240 1040",
+        width: "124",
+        height: "104",
       });
+  });
+
+  test("download reopens without clipping complex painted bounds", async ({
+    boardPage,
+    page,
+  }) => {
+    await boardPage.gotoBoard("download-complex-bounds");
+    await page.evaluate(() => {
+      const area = document.getElementById("drawingArea");
+      if (!(area instanceof SVGGElement)) throw new Error("Missing drawing area");
+      area.innerHTML = `
+        <path id="wide-path" d="M -30.5 -40.25 L 100.25 20.2"
+          transform="translate(10.25 5.5)" fill="none" stroke="#111"
+          stroke-width="500" stroke-linecap="round" stroke-linejoin="round" />
+        <rect id="fractional-rect" x="120.2" y="-12.4" width="33.3" height="19.7"
+          transform="translate(-4.5 8.25)" fill="none" stroke="#456" stroke-width="10" />
+        <text id="export-text" x="-12.5" y="90.75" font-size="40">BWA</text>
+        <image id="export-image" x="180.5" y="30.25" width="20" height="15"
+          href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E" />`;
+    });
+    await page.locator("#bwaMoreToggle").click();
+    await boardPage.installDownloadCapture();
+    await boardPage.tool("download").click();
+    const svgText = await boardPage.readDownloadText();
+
+    await page.setContent(svgText);
+    const reopened = await page.locator("svg").evaluate((svg) => {
+      const viewBox = svg.viewBox.baseVal;
+      return {
+        viewBox: [viewBox.x, viewBox.y, viewBox.width, viewBox.height],
+        width: Number(svg.getAttribute("width")),
+        height: Number(svg.getAttribute("height")),
+        ids: ["wide-path", "fractional-rect", "export-text", "export-image"].map(
+          (id) => Boolean(document.getElementById(id)),
+        ),
+      };
+    });
+    const [x, y, width, height] = reopened.viewBox;
+    expect(x).toBeLessThanOrEqual(-511);
+    expect(y).toBeLessThanOrEqual(-525);
+    expect(x + width).toBeGreaterThanOrEqual(601);
+    expect(y + height).toBeGreaterThanOrEqual(516);
+    expect(reopened.width / width).toBeCloseTo(0.1, 10);
+    expect(reopened.height / height).toBeCloseTo(0.1, 10);
+    expect(reopened.ids).toEqual([true, true, true, true]);
+  });
+
+  test("empty and unmeasurable downloads preserve the safe fallback extent", async ({
+    boardPage,
+    page,
+  }) => {
+    await boardPage.gotoBoard("download-empty-fallback");
+    await page.locator("#bwaMoreToggle").click();
+    await boardPage.installDownloadCapture();
+    await boardPage.tool("download").click();
+    await expect.poll(() => boardPage.readDownloadCapture()).toMatchObject({
+      width: "655360",
+      height: "655360",
+      viewBox: null,
+    });
+
+    await page.evaluate(() => {
+      const area = document.getElementById("drawingArea");
+      if (!(area instanceof SVGGElement)) throw new Error("Missing drawing area");
+      area.innerHTML = '<rect id="fallback-rect" x="10" y="10" width="20" height="20" />';
+      area.getBBox = () => {
+        throw new Error("synthetic measurement failure");
+      };
+    });
+    await boardPage.tool("download").click();
+    await expect.poll(() => boardPage.readDownloadCapture()).toMatchObject({
+      width: "655360",
+      height: "655360",
+      viewBox: null,
+      hasSvgTag: true,
+    });
   });
 
   test("selector duplicate and delete persist", async ({

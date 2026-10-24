@@ -926,6 +926,14 @@ window.turnstile = {
     });
   }
 
+  async readDownloadText(): Promise<string> {
+    return this.page.evaluate(async () => {
+      const blob = window.__downloadBlob;
+      if (!blob) throw new Error("Missing captured download blob");
+      return blob.text();
+    });
+  }
+
   async duplicateSelectionAndDelete(id: string) {
     await this.waitForBoardWritable();
     await this.page.evaluate(
