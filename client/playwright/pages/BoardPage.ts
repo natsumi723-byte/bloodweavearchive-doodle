@@ -72,6 +72,9 @@ type DownloadState = {
   hasSvgTag: boolean;
   hasRect: boolean;
   hasBoardStyles: boolean;
+  viewBox: string | null;
+  width: string | null;
+  height: string | null;
 };
 type ReconnectState = { connected: boolean; validated: boolean };
 type WriteStatusState = {
@@ -905,6 +908,10 @@ window.turnstile = {
       const blob = window.__downloadBlob;
       if (!blob) throw new Error("Missing captured download blob");
       const text = await blob.text();
+      const svg = new DOMParser().parseFromString(
+        text,
+        "image/svg+xml",
+      ).documentElement;
       return {
         clicks: window.__downloadAnchorClicks ?? 0,
         href: window.__downloadCapture?.href,
@@ -912,6 +919,9 @@ window.turnstile = {
         hasSvgTag: text.includes("<svg"),
         hasRect: text.includes('id="download-rect"'),
         hasBoardStyles: text.includes("#drawingArea"),
+        viewBox: svg.getAttribute("viewBox"),
+        width: svg.getAttribute("width"),
+        height: svg.getAttribute("height"),
       };
     });
   }

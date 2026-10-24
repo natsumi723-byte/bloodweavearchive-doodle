@@ -997,6 +997,7 @@ test.describe("single-page interactions", () => {
     });
 
     await boardPage.gotoBoard("download-test");
+    await boardPage.page.locator("#bwaMoreToggle").click();
     await expect(boardPage.tool("download")).toBeVisible();
     await expect(boardPage.page.locator("#download-rect")).toBeVisible();
     await boardPage.installDownloadCapture();
@@ -1011,6 +1012,9 @@ test.describe("single-page interactions", () => {
         hasSvgTag: true,
         hasRect: true,
         hasBoardStyles: true,
+        viewBox: "760 760 1080 880",
+        width: "108",
+        height: "88",
       });
   });
 

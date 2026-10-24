@@ -27,11 +27,57 @@
 /** @import { ToolBootContext } from "../../../types/app-runtime" */
 /** @typedef {ReturnType<typeof boot>} DownloadToolState */
 
+import { DEFAULT_BOARD_SCALE } from "../../js/board_viewport.js";
+
 export const toolId = "download";
 export const shortcut = "d";
 export const oneTouch = true;
 export const mouseCursor = "crosshair";
 export const visibleWhenReadOnly = true;
+
+const EXPORT_PADDING_PX = 24;
+
+/**
+ * Fits a standalone download to the actual drawing instead of exporting the
+ * complete 655360-unit collaboration surface. The latter is a coordinate
+ * safety boundary, not a useful document page size.
+ * @param {SVGSVGElement} source
+ * @param {SVGSVGElement} target
+ */
+function fitExportToDrawing(source, target) {
+  const drawingArea = source.querySelector("#drawingArea");
+  if (!(drawingArea instanceof SVGGraphicsElement)) return;
+
+  let bounds;
+  try {
+    bounds = drawingArea.getBBox();
+  } catch {
+    return;
+  }
+  if (
+    !Number.isFinite(bounds.x) ||
+    !Number.isFinite(bounds.y) ||
+    !Number.isFinite(bounds.width) ||
+    !Number.isFinite(bounds.height) ||
+    (bounds.width === 0 && bounds.height === 0)
+  ) {
+    return;
+  }
+
+  const padding = EXPORT_PADDING_PX / DEFAULT_BOARD_SCALE;
+  const minX = Math.floor(bounds.x - padding);
+  const minY = Math.floor(bounds.y - padding);
+  const viewBoxWidth = Math.max(1, Math.ceil(bounds.width + padding * 2));
+  const viewBoxHeight = Math.max(1, Math.ceil(bounds.height + padding * 2));
+  const width = Math.max(1, Math.ceil(viewBoxWidth * DEFAULT_BOARD_SCALE));
+  const height = Math.max(1, Math.ceil(viewBoxHeight * DEFAULT_BOARD_SCALE));
+  target.setAttribute(
+    "viewBox",
+    `${minX} ${minY} ${viewBoxWidth} ${viewBoxHeight}`,
+  );
+  target.setAttribute("width", String(width));
+  target.setAttribute("height", String(height));
+}
 
 /**
  * @param {Blob} blob
@@ -54,6 +100,7 @@ function downloadSvgFile(state) {
   const canvasCopy = /** @type {SVGSVGElement} */ (
     state.board.svg.cloneNode(true)
   );
+  fitExportToDrawing(state.board.svg, canvasCopy);
   canvasCopy.removeAttribute("style");
   const styleNode = document.createElement("style");
   styleNode.innerHTML = Array.from(document.styleSheets)
