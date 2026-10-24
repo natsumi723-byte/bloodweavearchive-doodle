@@ -175,20 +175,21 @@ export function installBwaChrome(tools) {
     root.dataset.bwaMore = "false";
     more?.setAttribute("aria-expanded", "false");
   };
-  /** @type {number | null} */
-  let dismissingPointerId = null;
-  /** @type {number | null} */
-  let dismissingTouchId = null;
-  let dismissingPointerType = "";
-  let suppressDismissClick = false;
-  let dismissResetTimer = 0;
-  const clearDismissGesture = () => {
-    dismissingPointerId = null;
-    dismissingTouchId = null;
-    dismissingPointerType = "";
-    suppressDismissClick = false;
-    window.clearTimeout(dismissResetTimer);
-    dismissResetTimer = 0;
+  /** @type {Map<number, number>} */
+  const suppressedPointers = new Map();
+  /** @type {Map<number, number>} */
+  const suppressedTouches = new Map();
+  /** @param {number} pointerId */
+  const clearSuppressedPointer = (pointerId) => {
+    const timer = suppressedPointers.get(pointerId);
+    if (timer !== undefined) window.clearTimeout(timer);
+    suppressedPointers.delete(pointerId);
+  };
+  /** @param {number} touchId */
+  const clearSuppressedTouch = (touchId) => {
+    const timer = suppressedTouches.get(touchId);
+    if (timer !== undefined) window.clearTimeout(timer);
+    suppressedTouches.delete(touchId);
   };
   /** @param {Event} event */
   const consumeDismissEvent = (event) => {
@@ -196,13 +197,20 @@ export function installBwaChrome(tools) {
     event.stopPropagation();
   };
   /** @param {PointerEvent} event */
-  const beginDismissGesture = (event) => {
-    dismissingPointerId = event.pointerId;
-    dismissingPointerType = event.pointerType;
-    dismissingTouchId = null;
-    suppressDismissClick = true;
-    window.clearTimeout(dismissResetTimer);
-    dismissResetTimer = window.setTimeout(clearDismissGesture, 1_000);
+  const suppressPointer = (event) => {
+    clearSuppressedPointer(event.pointerId);
+    suppressedPointers.set(
+      event.pointerId,
+      window.setTimeout(() => clearSuppressedPointer(event.pointerId), 1_000),
+    );
+  };
+  /** @param {number} touchId */
+  const suppressTouch = (touchId) => {
+    clearSuppressedTouch(touchId);
+    suppressedTouches.set(
+      touchId,
+      window.setTimeout(() => clearSuppressedTouch(touchId), 1_000),
+    );
   };
 
   more?.addEventListener("click", () => {
@@ -214,12 +222,17 @@ export function installBwaChrome(tools) {
   document.addEventListener(
     "pointerdown",
     (event) => {
-      if (root.dataset.bwaMore !== "true") return;
       const target = event.target;
-      if (target instanceof Node && more?.closest("#menu")?.contains(target))
-        return;
-      closeMoreMenu();
-      beginDismissGesture(event);
+      const menu = more?.closest("#menu");
+      const startsDismissal =
+        root.dataset.bwaMore === "true" &&
+        !(target instanceof Node && menu?.contains(target));
+      const joinsDismissal =
+        (suppressedPointers.size > 0 || suppressedTouches.size > 0) &&
+        !(target instanceof Node && menu?.contains(target));
+      if (!startsDismissal && !joinsDismissal) return;
+      if (startsDismissal) closeMoreMenu();
+      suppressPointer(event);
       consumeDismissEvent(event);
     },
     { capture: true },
@@ -227,26 +240,40 @@ export function installBwaChrome(tools) {
   document.addEventListener(
     "pointerup",
     (event) => {
-      if (event.pointerId !== dismissingPointerId) return;
+      if (!suppressedPointers.has(event.pointerId)) return;
       consumeDismissEvent(event);
-      dismissingPointerId = null;
+      const pointerId = event.pointerId;
+      window.setTimeout(() => clearSuppressedPointer(pointerId), 0);
     },
     { capture: true },
   );
   document.addEventListener(
     "pointercancel",
     (event) => {
-      if (event.pointerId !== dismissingPointerId) return;
+      if (!suppressedPointers.has(event.pointerId)) return;
       consumeDismissEvent(event);
-      clearDismissGesture();
+      clearSuppressedPointer(event.pointerId);
+      if (suppressedPointers.size === 0) {
+        for (const touchId of suppressedTouches.keys())
+          clearSuppressedTouch(touchId);
+      }
     },
     { capture: true },
   );
   document.addEventListener(
     "touchstart",
     (event) => {
-      if (!suppressDismissClick || dismissingTouchId !== null) return;
-      dismissingTouchId = event.changedTouches[0]?.identifier ?? null;
+      const target = event.target;
+      const menu = more?.closest("#menu");
+      const startsDismissal =
+        root.dataset.bwaMore === "true" &&
+        !(target instanceof Node && menu?.contains(target));
+      const joinsDismissal =
+        (suppressedPointers.size > 0 || suppressedTouches.size > 0) &&
+        !(target instanceof Node && menu?.contains(target));
+      if (!startsDismissal && !joinsDismissal) return;
+      if (startsDismissal) closeMoreMenu();
+      for (const touch of event.changedTouches) suppressTouch(touch.identifier);
       consumeDismissEvent(event);
     },
     { capture: true, passive: false },
@@ -254,34 +281,41 @@ export function installBwaChrome(tools) {
   document.addEventListener(
     "touchend",
     (event) => {
-      if (
-        dismissingTouchId === null ||
-        !Array.from(event.changedTouches).some(
-          (touch) => touch.identifier === dismissingTouchId,
-        )
-      )
-        return;
+      const matchingTouches = Array.from(event.changedTouches).filter((touch) =>
+        suppressedTouches.has(touch.identifier),
+      );
+      if (matchingTouches.length === 0) return;
       consumeDismissEvent(event);
-      dismissingTouchId = null;
-      if (dismissingPointerType === "touch") clearDismissGesture();
+      for (const touch of matchingTouches)
+        clearSuppressedTouch(touch.identifier);
     },
     { capture: true, passive: false },
   );
   document.addEventListener(
     "touchcancel",
     (event) => {
-      if (dismissingTouchId === null) return;
+      const matchingTouches = Array.from(event.changedTouches).filter((touch) =>
+        suppressedTouches.has(touch.identifier),
+      );
+      if (matchingTouches.length === 0) return;
       consumeDismissEvent(event);
-      clearDismissGesture();
+      for (const touch of matchingTouches)
+        clearSuppressedTouch(touch.identifier);
     },
     { capture: true, passive: false },
   );
   document.addEventListener(
     "click",
     (event) => {
-      if (!suppressDismissClick) return;
+      const pointerId =
+        event instanceof PointerEvent && suppressedPointers.has(event.pointerId)
+          ? event.pointerId
+          : suppressedPointers.size === 1
+            ? suppressedPointers.keys().next().value
+            : undefined;
+      if (pointerId === undefined) return;
       consumeDismissEvent(event);
-      clearDismissGesture();
+      clearSuppressedPointer(pointerId);
     },
     { capture: true },
   );
