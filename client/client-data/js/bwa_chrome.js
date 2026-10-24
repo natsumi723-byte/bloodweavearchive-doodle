@@ -1,0 +1,149 @@
+import { VIEWPORT_LAYOUT_EVENT } from "./board_viewport.js";
+import { currentAdminToken, isAdminPath } from "./cloudflare_socket_adapter.js";
+
+/**
+ * @param {HTMLElement | null} element
+ * @param {() => void | Promise<void>} callback
+ */
+function activateWithKeyboard(element, callback) {
+  element?.addEventListener("click", callback);
+  element?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    callback();
+  });
+}
+
+function installAdminDataControls() {
+  if (!isAdminPath(location.pathname)) return;
+  const backend = /** @type {HTMLMetaElement | null} */ (
+    document.querySelector('meta[name="bwa-cloudflare-backend"]')
+  )?.content?.replace(/\/$/, "");
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const boardName = pathSegments[pathSegments.length - 1];
+  const exportControl = document.getElementById("bwaAdminExport");
+  const restoreControl = document.getElementById("bwaAdminRestore");
+  const purgeControl = document.getElementById("bwaAdminPurge");
+  const restoreFile = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("bwaAdminRestoreFile")
+  );
+  if (
+    !backend ||
+    !boardName ||
+    !exportControl ||
+    !restoreControl ||
+    !purgeControl ||
+    !restoreFile
+  )
+    return;
+  const endpoint = `${backend}/api/admin/boards/${encodeURIComponent(boardName)}`;
+  const headers = () => ({
+    Authorization: `Bearer ${currentAdminToken() || ""}`,
+  });
+
+  activateWithKeyboard(exportControl, async () => {
+    const response = await fetch(`${endpoint}/export`, {
+      headers: headers(),
+      credentials: "include",
+    });
+    if (!response.ok) return window.alert("Export failed");
+    const blob = await response.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `bwa-${boardName}-backup.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+  activateWithKeyboard(restoreControl, () => restoreFile.click());
+  restoreFile.addEventListener("change", async () => {
+    const file = restoreFile.files?.[0];
+    if (
+      !file ||
+      !window.confirm("Replace this board with the selected verified backup?")
+    )
+      return;
+    const response = await fetch(`${endpoint}/restore`, {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      credentials: "include",
+      body: await file.text(),
+    });
+    if (!response.ok) return window.alert("Restore failed");
+    location.reload();
+  });
+  activateWithKeyboard(purgeControl, async () => {
+    if (
+      !window.confirm(
+        "Permanently purge records deleted more than 30 days ago?",
+      )
+    )
+      return;
+    const response = await fetch(`${endpoint}/purge`, {
+      method: "POST",
+      headers: headers(),
+      credentials: "include",
+    });
+    window.alert(response.ok ? "Old records purged" : "Purge failed");
+  });
+}
+
+/** @import { AppToolsState } from "../../types/app-runtime" */
+
+/**
+ * Presentation-only BWA chrome. All tool, preference and viewport mutations are
+ * delegated to the native WBO owners passed in by board_main.
+ * @param {AppToolsState} tools
+ */
+export function installBwaChrome(tools) {
+  const root = document.documentElement;
+  const board = tools.dom.board;
+  if (!board) return;
+  const viewport = tools.viewportState.controller;
+  const zoomValue = document.getElementById("bwaZoomValue");
+  const zoomOut = document.getElementById("bwaZoomOut");
+  const zoomIn = document.getElementById("bwaZoomIn");
+  const focus = document.getElementById("bwaFocusToggle");
+  const more = document.getElementById("bwaMoreToggle");
+  const style = /** @type {HTMLDetailsElement | null} */ (
+    document.getElementById("styleTool")
+  );
+  const styleClose = document.getElementById("bwaStyleClose");
+
+  const syncZoom = () => {
+    if (zoomValue)
+      zoomValue.textContent = `${Math.round(viewport.getScale() * 100)}%`;
+  };
+  /** @param {number} factor */
+  const zoomBy = (factor) => {
+    viewport.zoomBy(factor, window.innerWidth / 2, window.innerHeight / 2);
+    syncZoom();
+  };
+
+  zoomOut?.addEventListener("click", () => zoomBy(0.8));
+  zoomIn?.addEventListener("click", () => zoomBy(1.25));
+  board.addEventListener(VIEWPORT_LAYOUT_EVENT, syncZoom);
+  window.addEventListener("scroll", syncZoom, { passive: true });
+
+  focus?.addEventListener("click", () => {
+    const active = root.dataset.bwaFocus === "true";
+    root.dataset.bwaFocus = String(!active);
+    focus.setAttribute("aria-pressed", String(!active));
+  });
+
+  more?.addEventListener("click", () => {
+    const active = root.dataset.bwaMore === "true";
+    root.dataset.bwaMore = String(!active);
+    more.setAttribute("aria-expanded", String(!active));
+  });
+
+  style?.addEventListener("toggle", () => {
+    root.dataset.bwaStyleOpen = String(style.open);
+  });
+  styleClose?.addEventListener("click", () => {
+    if (style) style.open = false;
+  });
+
+  syncZoom();
+  root.dataset.bwaChrome = "ready";
+  installAdminDataControls();
+}

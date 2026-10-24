@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+server-data/
+workspace/
+coverage/
+test-results/
+playwright-report/
+*.log
+*.backup.json

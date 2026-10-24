@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bwa-unfinished-archive-v2",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-23",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BOARDS",
+        "class_name": "BoardRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BoardRoom"]
+    }
+  ],
+  "triggers": {
+    "crons": ["30 19 * * *"]
+  },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "BOARD_MAX_ITEMS": "300000",
+    "ALLOWED_PUBLIC_ORIGINS": "https://doodle.bloodweavearchive.com",
+    "ALLOWED_ADMIN_ORIGINS": "https://admin-doodle.bloodweavearchive.com"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

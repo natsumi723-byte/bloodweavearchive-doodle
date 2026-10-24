@@ -1,0 +1,408 @@
+import { DurableObject } from "cloudflare:workers";
+import { jsonResponse, normalizeBoardId, parseClientMessage, validOwnerToken } from "./protocol.js";
+import { ownerHash, verifySecret } from "./ownership.js";
+import { adminDataRoute, hasAccessAssertion, hasAdminProtocol, originAllowed, socketRoute } from "./security.js";
+import { createBackupBundle, createGoogleDriveClient, runBackupRotation, validateBackupBundle } from "./backup.js";
+import { correspondingSourceUrl } from "./source.js";
+
+function errorFrame(code, mutationId = null) {
+  return JSON.stringify({ type: "error", code, mutationId });
+}
+
+export class BoardRoom extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.ctx = ctx;
+    this.env = env;
+    this.sql = ctx.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS strokes (
+      id TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      owner_hash TEXT NOT NULL,
+      sequence INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      deleted_at INTEGER
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS strokes_sequence ON strokes(sequence)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS mutation_log (
+      mutation_id TEXT PRIMARY KEY,
+      owner_hash TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      item_id TEXT,
+      response TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS board_meta (
+      key TEXT PRIMARY KEY,
+      value INTEGER NOT NULL
+    )`);
+    this.sql.exec("INSERT OR IGNORE INTO board_meta (key, value) VALUES ('sequence', 0)");
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const boardId = normalizeBoardId(url.searchParams.get("board"));
+    if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return jsonResponse({ error: "websocket_required" }, 426);
+    }
+    const protocols = (request.headers.get("Sec-WebSocket-Protocol") || "")
+      .split(",")
+      .map((value) => value.trim());
+    const token = protocols.find((value) => value.startsWith("owner."))?.slice(6);
+    const adminToken = protocols.find((value) => value.startsWith("admin."))?.slice(6);
+    if (!validOwnerToken(token)) return jsonResponse({ error: "invalid_owner_token" }, 401);
+    const secret = this.env.OWNERSHIP_SECRET;
+    if (!secret || secret.length < 32) return jsonResponse({ error: "server_not_configured" }, 503);
+    const identity = await ownerHash(secret, boardId, token);
+    const isAdmin = await verifySecret(adminToken, this.env.ADMIN_SECRET);
+    if (adminToken && !isAdmin) return jsonResponse({ error: "invalid_admin_secret" }, 403);
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    const dropAckOnce = this.env.ENABLE_TEST_FAULTS === "true" &&
+      boardId.startsWith("qa-lost-ack-");
+    server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce });
+    const rows = [...this.sql.exec(
+      "SELECT id, payload, sequence FROM strokes WHERE deleted_at IS NULL ORDER BY sequence",
+    )];
+    server.send(JSON.stringify({
+      type: "snapshot",
+      items: rows.map((row) => ({ id: row.id, payload: JSON.parse(row.payload), sequence: row.sequence })),
+    }));
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "Sec-WebSocket-Protocol": "bwa-v2" },
+    });
+  }
+
+  exportSnapshot(boardId) {
+    const normalized = normalizeBoardId(boardId);
+    if (!normalized) throw new Error("invalid_board");
+    const sequence = [...this.sql.exec("SELECT value FROM board_meta WHERE key = 'sequence'")][0].value;
+    const strokes = [...this.sql.exec(
+      "SELECT id, payload, owner_hash, sequence, created_at, deleted_at FROM strokes ORDER BY sequence, id",
+    )].map((row) => ({
+      id: row.id,
+      payload: JSON.parse(row.payload),
+      ownerHash: row.owner_hash,
+      sequence: row.sequence,
+      createdAt: row.created_at,
+      deletedAt: row.deleted_at,
+    }));
+    return { schema: "bwa-board-snapshot/v1", boardId: normalized, sequence, strokes };
+  }
+
+  restoreSnapshot(snapshot) {
+    if (snapshot?.schema !== "bwa-board-snapshot/v1" || !normalizeBoardId(snapshot.boardId) || !Array.isArray(snapshot.strokes)) {
+      throw new Error("invalid_snapshot");
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM mutation_log");
+      this.sql.exec("DELETE FROM strokes");
+      for (const stroke of snapshot.strokes) {
+        this.sql.exec(
+          "INSERT INTO strokes (id, payload, owner_hash, sequence, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?)",
+          stroke.id,
+          JSON.stringify(stroke.payload),
+          stroke.ownerHash,
+          stroke.sequence,
+          stroke.createdAt,
+          stroke.deletedAt,
+        );
+      }
+      this.sql.exec("UPDATE board_meta SET value = ? WHERE key = 'sequence'", Number(snapshot.sequence) || 0);
+    });
+    return { restored: snapshot.strokes.length, sequence: Number(snapshot.sequence) || 0 };
+  }
+
+  purgeTombstones(now = Date.now(), retentionDays = 30) {
+    const cutoff = now - retentionDays * 24 * 60 * 60 * 1000;
+    const count = [...this.sql.exec(
+      "SELECT COUNT(*) AS count FROM strokes WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+      cutoff,
+    )][0].count;
+    const mutationCount = [...this.sql.exec(
+      "SELECT COUNT(*) AS count FROM mutation_log WHERE created_at < ?",
+      cutoff,
+    )][0].count;
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM strokes WHERE deleted_at IS NOT NULL AND deleted_at < ?", cutoff);
+      this.sql.exec("DELETE FROM mutation_log WHERE created_at < ?", cutoff);
+    });
+    return { purged: count, purgedMutationReceipts: mutationCount, cutoff };
+  }
+
+  async webSocketMessage(socket, raw) {
+    const parsed = parseClientMessage(raw);
+    if (!parsed.ok) {
+      socket.send(errorFrame(parsed.code));
+      return;
+    }
+    const attachment = socket.deserializeAttachment();
+    if (!attachment?.ownerHash || !attachment?.boardId) {
+      socket.close(1011, "missing_identity");
+      return;
+    }
+    const message = parsed.message;
+    if (message.type === "cursor") {
+      this.broadcast(message, socket);
+      return;
+    }
+    if (attachment.degraded) {
+      socket.send(errorFrame("read_only_degraded", message.mutationId));
+      return;
+    }
+    const replay = [...this.sql.exec(
+      "SELECT owner_hash, response FROM mutation_log WHERE mutation_id = ?",
+      message.mutationId,
+    )][0];
+    if (replay) {
+      if (replay.owner_hash !== attachment.ownerHash && !attachment.isAdmin) {
+        socket.send(errorFrame("mutation_id_conflict", message.mutationId));
+        return;
+      }
+      const response = JSON.parse(replay.response);
+      socket.send(JSON.stringify({ ...response, duplicate: true }));
+      return;
+    }
+    try {
+      const result = this.ctx.storage.transactionSync(() => {
+        const dropAck = attachment.dropAckOnce && ![...this.sql.exec(
+          "SELECT value FROM board_meta WHERE key = 'fault_drop_ack_once'",
+        )][0];
+        const applied = this.applyMutation(attachment, message);
+        if (dropAck) {
+          this.sql.exec(
+            "INSERT INTO board_meta (key, value) VALUES ('fault_drop_ack_once', 1)",
+          );
+        }
+        return { ...applied, dropAck };
+      });
+      if (result.event) this.broadcast(result.event, socket);
+      if (result.dropAck) {
+        socket.close(1012, "test_drop_ack_once");
+        return;
+      }
+      socket.send(JSON.stringify(result.ack));
+    } catch (error) {
+      const code = error instanceof MutationError ? error.code : "storage_failure";
+      if (!(error instanceof MutationError)) {
+        socket.serializeAttachment({ ...attachment, degraded: true });
+      }
+      socket.send(errorFrame(code, message.mutationId));
+    }
+  }
+
+  applyMutation(attachment, message) {
+    if (message.type === "admin.delete_all") {
+      if (!attachment.isAdmin) throw new MutationError("admin_required");
+      const sequence = this.nextSequence();
+      const deletedAt = Date.now();
+      const count = [...this.sql.exec(
+        "SELECT COUNT(*) AS count FROM strokes WHERE deleted_at IS NULL",
+      )][0].count;
+      this.sql.exec("UPDATE strokes SET deleted_at = ? WHERE deleted_at IS NULL", deletedAt);
+      const ack = {
+        type: "mutation.ack",
+        mutationId: message.mutationId,
+        action: message.type,
+        sequence,
+        affected: count,
+        status: "committed",
+      };
+      this.recordMutation(attachment, message, ack);
+      return { ack, event: { type: "admin.delete_all", sequence } };
+    }
+    if (message.type === "stroke.commit") {
+      const existing = [...this.sql.exec(
+        "SELECT payload, owner_hash FROM strokes WHERE id = ? AND deleted_at IS NULL",
+        message.id,
+      )][0];
+      if (existing) {
+        if (!attachment.isAdmin && existing.owner_hash !== attachment.ownerHash) {
+          throw new MutationError("not_item_owner");
+        }
+        const previous = JSON.parse(existing.payload);
+        const mutations = [
+          ...(Array.isArray(previous?.mutations) ? previous.mutations : []),
+          ...(Array.isArray(message.payload?.mutations) ? message.payload.mutations : []),
+        ];
+        const sequence = this.nextSequence();
+        this.sql.exec(
+          "UPDATE strokes SET payload = ?, sequence = ? WHERE id = ?",
+          JSON.stringify({ mutations }),
+          sequence,
+          message.id,
+        );
+        const ack = this.createAck(message, sequence);
+        this.recordMutation(attachment, message, ack);
+        return { ack, event: { ...message, sequence } };
+      }
+      const limit = Number(this.env.BOARD_MAX_ITEMS || 300000);
+      const count = [...this.sql.exec("SELECT COUNT(*) AS count FROM strokes WHERE deleted_at IS NULL")][0].count;
+      if (count >= limit) {
+        throw new MutationError("board_full");
+      }
+      const now = Date.now();
+      const sequence = this.nextSequence();
+      try {
+        this.sql.exec(
+          "INSERT INTO strokes (id, payload, owner_hash, sequence, created_at) VALUES (?, ?, ?, ?, ?)",
+          message.id,
+          JSON.stringify(message.payload),
+          attachment.ownerHash,
+          sequence,
+          now,
+        );
+      } catch {
+        throw new MutationError("duplicate_item");
+      }
+      const ack = this.createAck(message, sequence);
+      this.recordMutation(attachment, message, ack);
+      return { ack, event: { ...message, sequence } };
+    }
+    const row = [...this.sql.exec("SELECT owner_hash FROM strokes WHERE id = ? AND deleted_at IS NULL", message.id)][0];
+    if (!row) {
+      throw new MutationError("item_not_found");
+    }
+    if (!attachment.isAdmin && row.owner_hash !== attachment.ownerHash) {
+      throw new MutationError("not_item_owner");
+    }
+    const deletedAt = Date.now();
+    const sequence = this.nextSequence();
+    this.sql.exec("UPDATE strokes SET deleted_at = ? WHERE id = ?", deletedAt, message.id);
+    const ack = this.createAck(message, sequence);
+    this.recordMutation(attachment, message, ack);
+    return { ack, event: { ...message, sequence } };
+  }
+
+  nextSequence() {
+    this.sql.exec("UPDATE board_meta SET value = value + 1 WHERE key = 'sequence'");
+    return [...this.sql.exec("SELECT value FROM board_meta WHERE key = 'sequence'")][0].value;
+  }
+
+  createAck(message, sequence) {
+    return {
+      type: "mutation.ack",
+      mutationId: message.mutationId,
+      action: message.type,
+      id: message.id,
+      sequence,
+      status: "committed",
+    };
+  }
+
+  recordMutation(attachment, message, ack) {
+    this.sql.exec(
+      "INSERT INTO mutation_log (mutation_id, owner_hash, kind, item_id, response, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      message.mutationId,
+      attachment.ownerHash,
+      message.type,
+      message.id || null,
+      JSON.stringify(ack),
+      Date.now(),
+    );
+  }
+
+  webSocketClose() {}
+
+  webSocketError() {}
+
+  broadcast(message, except = null) {
+    const encoded = JSON.stringify(message);
+    for (const peer of this.ctx.getWebSockets()) {
+      if (peer !== except) peer.send(encoded);
+    }
+  }
+}
+
+class MutationError extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === "/health") {
+      const source = correspondingSourceUrl(env);
+      if (!source) return jsonResponse({ ok: false, error: "corresponding_source_not_configured" }, 503);
+      return jsonResponse({ ok: true, storage: "durable-object-sqlite", source });
+    }
+    const dataRoute = adminDataRoute(url.pathname);
+    if (dataRoute) {
+      if (!originAllowed(request, env, true)) return jsonResponse({ error: "origin_not_allowed" }, 403);
+      if (!hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
+      const bearer = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
+      if (!await verifySecret(bearer, env.ADMIN_SECRET)) return jsonResponse({ error: "invalid_admin_secret" }, 403);
+      const boardId = normalizeBoardId(dataRoute.board);
+      if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+      const stub = env.BOARDS.get(env.BOARDS.idFromName(boardId));
+      if (dataRoute.action === "export" && request.method === "GET") {
+        const bundle = await createBackupBundle(await stub.exportSnapshot(boardId));
+        return new Response(JSON.stringify(bundle), {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Disposition": `attachment; filename="bwa-${boardId}-backup.json"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (dataRoute.action === "restore" && request.method === "POST") {
+        let bundle;
+        try {
+          bundle = await validateBackupBundle(await request.text());
+        } catch (error) {
+          return jsonResponse({ error: error instanceof Error ? error.message : "invalid_backup" }, 400);
+        }
+        if (bundle.snapshot.boardId !== boardId) return jsonResponse({ error: "backup_board_mismatch" }, 409);
+        return jsonResponse(await stub.restoreSnapshot(bundle.snapshot));
+      }
+      if (dataRoute.action === "purge" && request.method === "POST") {
+        return jsonResponse(await stub.purgeTombstones(Date.now(), 30));
+      }
+      return jsonResponse({ error: "method_not_allowed" }, 405);
+    }
+    const route = socketRoute(url.pathname);
+    if (!route) return jsonResponse({ error: "not_found" }, 404);
+    if (!originAllowed(request, env, route.admin)) {
+      return jsonResponse({ error: "origin_not_allowed" }, 403);
+    }
+    if (route.admin) {
+      if (!hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
+      if (!hasAdminProtocol(request)) return jsonResponse({ error: "admin_secret_required" }, 401);
+    } else if (hasAdminProtocol(request)) {
+      return jsonResponse({ error: "admin_route_required" }, 403);
+    }
+    const boardId = normalizeBoardId(route.board);
+    if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+    const objectId = env.BOARDS.idFromName(boardId);
+    const stub = env.BOARDS.get(objectId);
+    const forwarded = new URL(request.url);
+    forwarded.searchParams.set("board", boardId);
+    return stub.fetch(new Request(forwarded, request));
+  },
+
+  async scheduled(controller, env, ctx) {
+    const boardIds = String(env.BACKUP_BOARD_IDS || "").split(",").map((value) => normalizeBoardId(value)).filter(Boolean);
+    if (!boardIds.length || !env.GOOGLE_DRIVE_FOLDER_ID) throw new Error("backup_not_configured");
+    const drive = createGoogleDriveClient(env);
+    const jobs = boardIds.map(async (boardId) => {
+      const stub = env.BOARDS.get(env.BOARDS.idFromName(boardId));
+      await stub.purgeTombstones(controller.scheduledTime, 30);
+      const snapshot = await stub.exportSnapshot(boardId);
+      return runBackupRotation({
+        snapshot,
+        drive,
+        folderId: env.GOOGLE_DRIVE_FOLDER_ID,
+        retention: 30,
+        now: new Date(controller.scheduledTime),
+      });
+    });
+    ctx.waitUntil(Promise.all(jobs));
+  },
+};

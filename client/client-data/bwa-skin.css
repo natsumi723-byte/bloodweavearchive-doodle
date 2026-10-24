@@ -1,0 +1,661 @@
+.bwa-skin {
+  --bwa-canvas: #f4f0e8;
+  --bwa-page: #e8e2d9;
+  --bwa-surface: rgba(255, 253, 249, 0.96);
+  --bwa-soft: #f5f1eb;
+  --bwa-ink: #272321;
+  --bwa-muted: #777069;
+  --bwa-line: #d8d0c6;
+  --bwa-accent: #7b3040;
+  --bwa-accent-soft: #eadde0;
+  --bwa-shadow: 0 12px 32px rgba(50, 41, 35, 0.14);
+  background: var(--bwa-canvas);
+  color: var(--bwa-ink);
+  font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+}
+
+html:has(body.bwa-skin) {
+  scrollbar-width: none;
+}
+
+html:has(body.bwa-skin)::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.bwa-skin::before {
+  position: fixed;
+  inset: 18px;
+  z-index: 2;
+  border: 1px solid #d7cfc3;
+  border-radius: 22px;
+  box-shadow: 0 0 0 9999px var(--bwa-page);
+  content: "";
+  pointer-events: none;
+}
+
+.bwa-identity {
+  position: fixed;
+  top: 46px;
+  left: 48px;
+  z-index: 12;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.bwa-identity strong {
+  color: #342e2a;
+  font:
+    500 15px Georgia,
+    "Noto Serif SC",
+    serif;
+  letter-spacing: 0.16em;
+}
+.bwa-identity span {
+  color: #89817a;
+  font-size: 9px;
+  letter-spacing: 0.27em;
+}
+.bwa-identity-mobile {
+  display: none;
+}
+
+.bwa-skin #menu {
+  top: 282px;
+  bottom: auto;
+  left: 40px;
+  z-index: 60;
+  width: 60px;
+  max-height: none;
+  padding: 8px;
+  overflow: visible;
+  border: 1px solid var(--bwa-line);
+  border-radius: 20px;
+  background: var(--bwa-surface);
+  box-shadow: var(--bwa-shadow);
+  transition: none;
+}
+.bwa-skin #menuItems,
+.bwa-skin #menu .tools {
+  gap: 6px;
+}
+.bwa-skin #menu .tool,
+.bwa-more-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  min-height: 52px;
+  padding: 4px 3px;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: var(--bwa-soft);
+  color: #4c4642;
+  box-shadow: none;
+  line-height: 1;
+  list-style-position: outside;
+  overflow: visible;
+}
+.bwa-skin #menu .tool-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  filter: grayscale(0.55) sepia(0.12);
+}
+.bwa-skin #menu .tool-shortcut,
+.bwa-skin #menu .secondaryIcon {
+  display: none;
+}
+.bwa-skin #menu .tool:hover .tool-shortcut,
+.bwa-skin #menu .tool:focus .tool-shortcut,
+.bwa-skin #menu .tool.hasSecondary .tool-icon.secondaryIcon {
+  display: none;
+}
+.bwa-skin #menu .tool-name,
+.bwa-more-toggle .tool-name {
+  position: static;
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  overflow: hidden;
+  color: var(--bwa-muted);
+  font-size: 9px;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bwa-skin #menu .tool:hover,
+.bwa-skin #menu .tool:focus-visible,
+.bwa-more-toggle:hover,
+.bwa-more-toggle:focus-visible {
+  border-color: var(--bwa-line);
+  background: #fffdf9;
+}
+.bwa-skin #menu .tool.curTool {
+  border-color: var(--bwa-accent);
+  background: var(--bwa-accent);
+  color: white;
+}
+.bwa-skin #menu .tool.curTool .tool-name {
+  color: white;
+}
+.bwa-skin #menu .tool.curTool .tool-icon {
+  filter: brightness(0) invert(1);
+}
+
+.bwa-skin #menu #toolID-straight-line,
+.bwa-skin #menu #toolID-rectangle,
+.bwa-skin #menu #toolID-ellipse,
+.bwa-skin #menu #toolID-text,
+.bwa-skin #menu #toolID-grid,
+.bwa-skin #menu #toolID-download,
+.bwa-skin #menu #toolID-zoom,
+.bwa-skin #menu #toolID-clear,
+.bwa-skin #menu #bwaAdminExport,
+.bwa-skin #menu #bwaAdminRestore,
+.bwa-skin #menu #bwaAdminPurge {
+  display: none;
+}
+.bwa-skin #tools::after {
+  width: 32px;
+  height: 1px;
+  margin: 2px auto;
+  background: #ddd5cc;
+  content: "";
+}
+.bwa-skin #settings {
+  margin: 0;
+  min-height: 52px;
+}
+.bwa-skin #menu #styleTool {
+  width: 44px;
+  height: 52px;
+  padding: 0;
+}
+.bwa-skin #styleTool[open] {
+  border-color: var(--bwa-accent);
+  background: var(--bwa-accent-soft);
+}
+.bwa-skin #styleSummary {
+  display: flex;
+  flex-direction: column;
+  place-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  gap: 2px;
+  line-height: 1;
+}
+.bwa-skin #stylePreview {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+.bwa-more-toggle {
+  display: grid;
+  place-items: center;
+  font: inherit;
+  cursor: pointer;
+}
+.bwa-more-toggle > span:first-child {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+html[data-bwa-more="true"] .bwa-skin #menu {
+  width: 344px;
+  padding: 14px;
+}
+html[data-bwa-more="true"] .bwa-skin #menuItems {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+html[data-bwa-more="true"] .bwa-skin #tools {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+html[data-bwa-more="true"] .bwa-skin #settings {
+  display: contents;
+}
+html[data-bwa-more="true"] .bwa-skin #styleToolMenu {
+  grid-column: 1 / span 2;
+  grid-row: 2;
+}
+html[data-bwa-more="true"] .bwa-more-toggle {
+  grid-column: 3 / span 2;
+  grid-row: 2;
+}
+html[data-bwa-more="true"] .bwa-skin #tools::after {
+  display: none;
+}
+html[data-bwa-more="true"] .bwa-skin #menu .tool,
+html[data-bwa-more="true"] .bwa-more-toggle,
+html[data-bwa-more="true"] .bwa-skin #styleTool,
+html[data-bwa-more="true"] .bwa-skin .style-tool-menu {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 60px;
+  min-height: 60px;
+}
+html[data-bwa-more="true"] .bwa-skin #menu .tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: normal;
+}
+html[data-bwa-more="true"] .bwa-skin #menu .tool-icon {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
+html[data-bwa-more="true"] .bwa-skin #styleSummary {
+  width: 100%;
+  height: 100%;
+}
+html[data-bwa-more="true"] .bwa-skin #menu #styleTool {
+  width: 100%;
+  max-width: none;
+}
+html[data-bwa-more="true"] .bwa-skin #menu .tool-name,
+html[data-bwa-more="true"] .bwa-more-toggle .tool-name {
+  display: -webkit-box;
+  min-height: 22px;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 11px;
+  text-align: center;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-straight-line,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-rectangle,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-ellipse,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-text,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-grid,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-download,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-zoom,
+html[data-bwa-more="true"] .bwa-skin #menu #bwaAdminExport,
+html[data-bwa-more="true"] .bwa-skin #menu #bwaAdminRestore,
+html[data-bwa-more="true"] .bwa-skin #menu #bwaAdminPurge,
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-clear:not([hidden]) {
+  display: flex;
+}
+html[data-bwa-more="true"] .bwa-skin #menu #toolID-clear.disabledTool {
+  display: none;
+}
+
+.bwa-skin .style-panel {
+  position: fixed;
+  top: 328px;
+  bottom: auto;
+  left: 120px;
+  box-sizing: border-box;
+  width: 300px;
+  min-width: 300px;
+  min-height: 420px;
+  padding: 24px;
+  border: 1px solid var(--bwa-line);
+  border-radius: 22px;
+  background: #fffdf9;
+  box-shadow: var(--bwa-shadow);
+  overflow: visible;
+}
+.bwa-style-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e6dfd6;
+  color: #8a8179;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.bwa-style-header button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--bwa-muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+.bwa-skin .style-panel-title {
+  width: 100%;
+  padding: 18px 0 10px;
+  color: #514b47;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+.bwa-skin .colorPresets {
+  grid-template-columns: repeat(6, 32px);
+  gap: 10px;
+}
+.bwa-skin .colorPresetButton {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--bwa-line);
+}
+.bwa-skin .colorPresetButton[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 3px #fffdf9,
+    0 0 0 4px var(--bwa-accent);
+}
+.bwa-skin .colorPresetButton:nth-child(n + 7):not(.colorPresetCustom) {
+  display: none;
+}
+.bwa-skin .colorPresetCustom {
+  display: none;
+}
+.bwa-current-color {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 16px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--bwa-soft);
+  color: #514b47;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.bwa-current-color-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.bwa-current-color output {
+  padding-inline-start: 8px;
+}
+.bwa-current-color > span:last-child {
+  color: #8a8179;
+  font-size: 10px;
+}
+.bwa-size-value {
+  color: var(--bwa-accent);
+}
+.bwa-stroke-preview {
+  display: grid;
+  place-items: center;
+  min-height: 32px;
+  margin-top: 16px;
+  border-radius: 10px;
+  background: var(--bwa-soft);
+}
+.bwa-stroke-preview span {
+  display: block;
+  width: calc(100% - 32px);
+  min-height: 2px;
+  border-radius: 999px;
+}
+.bwa-skin .style-row {
+  margin-top: 22px;
+}
+.bwa-skin .style-row-name,
+.bwa-skin .style-row-hint {
+  color: #514b47;
+}
+.bwa-skin .rangeChooser {
+  accent-color: var(--bwa-accent);
+}
+
+.bwa-skin .board-hud {
+  top: 42px;
+  right: 48px;
+  z-index: 35;
+}
+.bwa-skin .board-presence-toggle,
+.bwa-skin .board-status-card,
+.bwa-skin .connected-users-panel {
+  border-color: var(--bwa-line);
+  border-radius: 13px;
+  background: var(--bwa-surface);
+  color: var(--bwa-ink);
+  box-shadow: 0 8px 24px rgba(50, 41, 35, 0.1);
+}
+.bwa-skin .board-presence-toggle {
+  width: auto;
+  min-width: 44px;
+  max-width: none;
+  min-height: 38px;
+  padding: 3px 7px;
+}
+.bwa-skin .board-presence-toggle > .tool-name {
+  display: none;
+}
+.bwa-skin .board-presence-icon {
+  display: none;
+}
+.bwa-presence-summary {
+  display: flex;
+  align-items: center;
+  min-width: 28px;
+}
+.bwa-presence-avatar,
+.bwa-presence-remainder {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  margin-left: -7px;
+  border: 3px solid var(--bwa-canvas);
+  border-radius: 50%;
+  color: white;
+  font-size: 10px;
+}
+.bwa-presence-avatar:first-child {
+  margin-left: 0;
+}
+.bwa-presence-remainder {
+  width: auto;
+  min-width: 30px;
+  padding: 0 6px;
+  background: #fffdf9;
+  color: #6d6660;
+}
+
+.bwa-view-controls {
+  position: fixed;
+  right: 50px;
+  bottom: 42px;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 9px;
+  border: 1px solid #ddd5cc;
+  border-radius: 13px;
+  background: var(--bwa-surface);
+  box-shadow: 0 8px 24px rgba(50, 41, 35, 0.08);
+}
+.bwa-view-controls button,
+.bwa-view-controls a,
+.bwa-view-controls output {
+  min-width: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--bwa-muted);
+  font: inherit;
+  font-size: 10px;
+  text-decoration: none;
+}
+.bwa-view-controls button {
+  min-height: 32px;
+  cursor: pointer;
+}
+.bwa-view-controls output {
+  color: #514b47;
+  text-align: center;
+}
+.bwa-view-controls a {
+  padding: 0 8px;
+}
+.bwa-control-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  background: #ddd5cc;
+}
+.bwa-skin :focus-visible {
+  outline: 2px solid var(--bwa-accent);
+  outline-offset: 2px;
+}
+html[data-bwa-focus="true"] .bwa-identity,
+html[data-bwa-focus="true"] .bwa-skin #menu,
+html[data-bwa-focus="true"] .bwa-skin .board-hud {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
+  .bwa-skin::before {
+    display: none;
+  }
+  .bwa-identity {
+    top: 20px;
+    left: 18px;
+    box-sizing: border-box;
+    width: 120px;
+    min-height: 40px;
+    padding: 8px 13px;
+    gap: 3px;
+    border: 1px solid #ded6cc;
+    border-radius: 13px;
+    background: rgba(255, 253, 249, 0.88);
+  }
+  .bwa-identity strong {
+    font-size: 12px;
+  }
+  .bwa-identity span {
+    max-width: 90px;
+    overflow: hidden;
+    font-size: 7px;
+    letter-spacing: 0.16em;
+    white-space: nowrap;
+  }
+
+  .bwa-identity-desktop {
+    display: none;
+  }
+
+  .bwa-identity-mobile {
+    display: block;
+  }
+  .bwa-skin .board-hud {
+    top: 23px;
+    right: 18px;
+  }
+  .bwa-skin #menu {
+    top: auto;
+    right: 18px;
+    bottom: 16px;
+    left: 18px;
+    width: auto;
+    padding: 7px 10px;
+    border-radius: 20px;
+  }
+  .bwa-skin #menuItems {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+  .bwa-skin #menu .tools {
+    display: contents;
+  }
+  .bwa-skin #menu .tool,
+  .bwa-more-toggle {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    min-height: 44px;
+    padding: 3px;
+  }
+  .bwa-skin #menu .tool-name,
+  .bwa-more-toggle .tool-name,
+  .bwa-skin #tools::after {
+    display: none;
+  }
+  .bwa-skin #styleTool,
+  .bwa-skin .style-tool-menu {
+    width: 44px;
+    height: 44px;
+  }
+  .bwa-skin .style-panel {
+    top: auto;
+    right: auto;
+    bottom: 100px;
+    left: 38px;
+    width: calc(100vw - 76px);
+    min-width: 0;
+    max-width: calc(100vw - 76px);
+    max-height: calc(100vh - 124px);
+    padding: 22px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 26px;
+  }
+  .bwa-skin .style-panel::before {
+    display: block;
+    width: 46px;
+    height: 4px;
+    margin: -12px auto 18px;
+    border-radius: 2px;
+    background: var(--bwa-line);
+    content: "";
+  }
+  .bwa-skin .colorPresets {
+    grid-template-columns: repeat(7, 30px);
+    gap: 7px;
+  }
+
+  .bwa-skin .style-panel-title {
+    width: auto;
+  }
+  .bwa-skin .colorPresetButton {
+    width: 30px;
+    height: 30px;
+  }
+  .bwa-view-controls {
+    display: none;
+  }
+  html[data-bwa-more="true"] .bwa-skin #menu {
+    width: auto;
+    padding: 12px;
+  }
+  html[data-bwa-more="true"] .bwa-skin #menuItems {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+  html[data-bwa-more="true"] .bwa-skin #tools {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
