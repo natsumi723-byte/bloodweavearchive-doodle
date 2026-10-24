@@ -228,7 +228,12 @@ export class ConnectionModule {
 
   /** @param {string} reason */
   resumeReconnect(reason) {
-    if (this.terminalCapacity || this.state === "connected") return;
+    if (
+      this.terminalCapacity ||
+      this.state === "connected" ||
+      this.state === "connecting"
+    )
+      return;
     if (!this.canReconnectNow()) return;
     this.logBoardEvent("log", "socket.reconnect_resumed", { reason });
     this.scheduleSocketReconnect(0);
@@ -268,7 +273,12 @@ export class ConnectionModule {
 
   /** @param {number} [delayMs] */
   scheduleSocketReconnect(delayMs) {
-    if (this.terminalCapacity || this.reconnectTimerId) return;
+    if (
+      this.terminalCapacity ||
+      this.state === "connecting" ||
+      this.reconnectTimerId
+    )
+      return;
     if (!this.canReconnectNow()) return;
     const resolvedDelay =
       delayMs === undefined
@@ -292,6 +302,7 @@ export class ConnectionModule {
     if (this.terminalCapacity || !this.canReconnectNow())
       return Promise.resolve();
     if (this.starting) return this.starting;
+    if (this.state === "connecting") return Promise.resolve();
     window.clearTimeout(this.reconnectTimerId);
     this.reconnectTimerId = 0;
     const Tools = this.getTools();
@@ -308,6 +319,7 @@ export class ConnectionModule {
 
     this.starting = (async () => {
       if (Tools.dom.status !== "attached") {
+        this.state = "disconnected";
         this.scheduleSocketReconnect();
         return;
       }
@@ -326,6 +338,7 @@ export class ConnectionModule {
           Tools.replay.refreshBaselineBeforeConnect = false;
         } catch (error) {
           if (generation !== this.generation) return;
+          this.state = "disconnected";
           const nextReconnectDelayMs = 1000;
           this.logBoardEvent("warn", "replay.baseline_refresh_failed", {
             errorName: error instanceof Error ? error.name : typeof error,
@@ -573,7 +586,10 @@ export class ConnectionModule {
       socket.connect();
     })().finally(() => {
       this.starting = null;
-      if (generation !== this.generation) void this.start();
+      if (generation !== this.generation) {
+        if (this.state === "connecting") this.state = "disconnected";
+        void this.start();
+      }
     });
     return this.starting;
   }

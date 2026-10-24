@@ -7,6 +7,7 @@ import worker, {
   canonicalBoardRequest,
   isAdminApiRequest,
   isBoardApiRequest,
+  isPublicCapacityProbe,
   preferredLanguage,
 } from "../src/index.js";
 
@@ -148,10 +149,61 @@ test("same-origin public capacity probes are proxied to the API binding", async 
     ASSETS: { fetch: () => new Response("asset") },
   };
   const url = new URL(
-    "https://doodle.example/api/boards/archive/socket?capacityProbe=1",
+    "https://doodle.example/api/boards/bwa-unfinished-archive/socket?capacityProbe=1",
   );
-  assert.equal(isBoardApiRequest(url, url.hostname, env), true);
-  const response = await worker.fetch(new Request(url), env);
+  const request = new Request(url);
+  assert.equal(isBoardApiRequest(request, url, url.hostname, env), true);
+  assert.equal(isPublicCapacityProbe(request, url, url.hostname, env), true);
+  const response = await worker.fetch(request, env);
   assert.equal(await response.text(), "capacity");
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.equal(forwarded.length, 1);
+});
+
+test("public proxy rejects every non-capacity route shape", async () => {
+  const forwarded = [];
+  const env = {
+    BOARD_ID: "bwa-unfinished-archive",
+    PUBLIC_HOST: "doodle.example",
+    ADMIN_HOST: "admin-doodle.example",
+    API: {
+      fetch(request) {
+        forwarded.push(request);
+        return new Response("proxied");
+      },
+    },
+    ASSETS: { fetch: () => new Response("asset") },
+  };
+  const cases = [
+    new Request(
+      "https://doodle.example/api/boards/bwa-unfinished-archive/socket",
+    ),
+    new Request(
+      "https://doodle.example/api/boards/bwa-unfinished-archive/socket?capacityProbe=0",
+    ),
+    new Request(
+      "https://doodle.example/api/boards/bwa-unfinished-archive/socket?capacityProbe=1&extra=1",
+    ),
+    new Request(
+      "https://doodle.example/api/boards/bwa-unfinished-archive/export?capacityProbe=1",
+    ),
+    new Request(
+      "https://doodle.example/api/boards/another-board/socket?capacityProbe=1",
+    ),
+    new Request(
+      "https://doodle.example/api/boards/bwa-unfinished-archive/socket?capacityProbe=1",
+      { method: "POST" },
+    ),
+  ];
+  for (const request of cases) {
+    const url = new URL(request.url);
+    assert.equal(
+      isBoardApiRequest(request, url, url.hostname, env),
+      false,
+      `${request.method} ${url.pathname}${url.search}`,
+    );
+    const response = await worker.fetch(request, env);
+    assert.equal(await response.text(), "asset");
+  }
+  assert.equal(forwarded.length, 0);
 });

@@ -31,9 +31,19 @@ function isAdminApiRequest(url, host, env) {
   );
 }
 
-function isBoardApiRequest(url, host, env) {
+function isPublicCapacityProbe(request, url, host, env) {
   return (
-    (host === env.PUBLIC_HOST && url.pathname.startsWith("/api/boards/")) ||
+    host === env.PUBLIC_HOST &&
+    request.method === "GET" &&
+    url.pathname === `/api/boards/${encodeURIComponent(env.BOARD_ID)}/socket` &&
+    url.searchParams.size === 1 &&
+    url.searchParams.get("capacityProbe") === "1"
+  );
+}
+
+function isBoardApiRequest(request, url, host, env) {
+  return (
+    isPublicCapacityProbe(request, url, host, env) ||
     isAdminApiRequest(url, host, env)
   );
 }
@@ -80,8 +90,16 @@ export default {
     if (host !== expectedHost)
       return new Response("Not found", { status: 404 });
 
-    if (isBoardApiRequest(url, host, env)) {
-      return env.API.fetch(request);
+    if (isBoardApiRequest(request, url, host, env)) {
+      const response = await env.API.fetch(request);
+      if (!isPublicCapacityProbe(request, url, host, env)) return response;
+      const headers = new Headers(response.headers);
+      headers.set("Cache-Control", "no-store");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     }
 
     if (url.pathname === "/" || url.pathname === `/${kind}`) {
@@ -113,5 +131,6 @@ export {
   canonicalBoardRequest,
   isAdminApiRequest,
   isBoardApiRequest,
+  isPublicCapacityProbe,
   preferredLanguage,
 };

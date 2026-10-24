@@ -77,7 +77,11 @@ export class BoardRoom extends DurableObject {
       request.method === "GET" &&
       url.searchParams.get("capacityProbe") === "1"
     ) {
-      return jsonResponse({ ok: true, capacity: "available" });
+      return jsonResponse(
+        { ok: true, capacity: "available" },
+        200,
+        { "Cache-Control": "no-store" },
+      );
     }
     if (request.headers.get("Upgrade") !== "websocket") {
       return jsonResponse({ error: "websocket_required" }, 426);
@@ -540,7 +544,7 @@ export default {
         return jsonResponse(
           { error: "capacity_exhausted", retryable: true },
           503,
-          { "Retry-After": "3600" },
+          { "Cache-Control": "no-store", "Retry-After": "3600" },
         );
       }
       throw error;

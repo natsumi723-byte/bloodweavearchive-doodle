@@ -300,6 +300,7 @@ test("connection and replay discard superseded asynchronous work", async (t) => 
   assert.deepEqual(Tools.toolRegistry.pendingMessages, {});
   Tools.replay.refreshBaselineBeforeConnect = false;
   t.mock.method(Tools.replay, "refreshAuthoritativeBaseline", async () => {});
+  Tools.connection.state = "disconnected";
   Tools.connection.scheduleSocketReconnect();
   Tools.connection.scheduleSocketReconnect();
   browser.advanceTime(500);
@@ -307,7 +308,7 @@ test("connection and replay discard superseded asynchronous work", async (t) => 
   assert.equal(connect.mock.callCount(), 2);
 });
 
-test("reconnect backoff is bounded, single-flight, pausable, and manually recoverable", async (t) => {
+test("reconnect is single-flight across resume and duplicate error-close ordering", async (t) => {
   const { ConnectionModule, reconnectDelayMs } = await import(
     "../client-data/js/board_connection_module.js"
   );
@@ -337,6 +338,7 @@ test("reconnect backoff is bounded, single-flight, pausable, and manually recove
   );
   connection.start = async () => {
     starts++;
+    connection.state = "connecting";
   };
   connection.scheduleSocketReconnect();
   connection.scheduleSocketReconnect();
@@ -345,12 +347,23 @@ test("reconnect backoff is bounded, single-flight, pausable, and manually recove
   browser.advanceTime(1);
   assert.equal(starts, 1);
 
+  connection.resumeReconnect("visible");
+  connection.resumeReconnect("online");
+  browser.flushUntilIdle();
+  assert.equal(starts, 1);
+  assert.equal(connection.reconnectTimerId, 0);
+
+  connection.state = "disconnected";
   connection.scheduleSocketReconnect();
+  const timerAfterError = connection.reconnectTimerId;
+  connection.scheduleSocketReconnect();
+  assert.equal(connection.reconnectTimerId, timerAfterError);
   connection.pauseReconnect("hidden");
   browser.advanceTime(1000);
   assert.equal(starts, 1);
 
   connection.terminalCapacity = true;
+  connection.state = "disconnected";
   connection.scheduleSocketReconnect(0);
   browser.flushUntilIdle();
   assert.equal(starts, 1);
