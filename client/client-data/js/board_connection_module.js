@@ -251,6 +251,14 @@ export class ConnectionModule {
         this.scheduleSocketReconnect();
         return;
       }
+      const ioClient = await whenSocketIoReady();
+      if (generation !== this.generation) return;
+      if (
+        /** @type {{providesCompleteSnapshots?: boolean}} */ (ioClient)
+          .providesCompleteSnapshots === true
+      ) {
+        Tools.replay.refreshBaselineBeforeConnect = false;
+      }
       if (Tools.replay.refreshBaselineBeforeConnect) {
         try {
           await Tools.replay.refreshAuthoritativeBaseline();
@@ -290,8 +298,6 @@ export class ConnectionModule {
         },
       );
 
-      const ioClient = await whenSocketIoReady();
-      if (generation !== this.generation) return;
       const socket = ioClient.connect("", socketParams);
       this.socket = socket;
 

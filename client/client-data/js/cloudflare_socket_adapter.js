@@ -435,6 +435,7 @@ export function createCloudflareIo() {
   )?.content;
   if (!baseUrl) return null;
   return {
+    providesCompleteSnapshots: true,
     connect(_namespace, params) {
       const query = new URLSearchParams(params?.query || "");
       return new CloudflareSocket(

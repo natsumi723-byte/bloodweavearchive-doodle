@@ -1,0 +1,14 @@
+{
+  "name": "bwa-doodle-site-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-static-site.mjs",
+    "test": "node --test test/*.test.js",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.45.0"
+  }
+}

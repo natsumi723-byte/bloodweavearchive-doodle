@@ -45,3 +45,19 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
       - run: npm test
+
+  site-worker:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: site-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site-worker/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run deploy:dry-run

@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bwa-doodle-site",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-23",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "doodle.bloodweavearchive.com", "custom_domain": true },
+    { "pattern": "admin-doodle.bloodweavearchive.com", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": {
+    "BOARD_ID": "bwa-unfinished-archive",
+    "PUBLIC_HOST": "doodle.bloodweavearchive.com",
+    "ADMIN_HOST": "admin-doodle.bloodweavearchive.com"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

@@ -1,6 +1,26 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
+test("Cloudflare adapter declares that socket snapshots replace SVG baselines", async () => {
+  const previousDocument = global.document;
+  global.document = /** @type {any} */ ({
+    querySelector(/** @type {string} */ selector) {
+      return selector === 'meta[name="bwa-cloudflare-backend"]'
+        ? { content: "wss://api.example.invalid" }
+        : null;
+    },
+  });
+  try {
+    const { createCloudflareIo } = await import(
+      "../client-data/js/cloudflare_socket_adapter.js"
+    );
+    const adapter = createCloudflareIo();
+    assert.equal(adapter?.providesCompleteSnapshots, true);
+  } finally {
+    global.document = previousDocument;
+  }
+});
+
 test("Cloudflare adapter resolves a durable batch only after its ACK", async () => {
   const previousWebSocket = global.WebSocket;
   global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
