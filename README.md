@@ -33,9 +33,10 @@ secrets, Cloudflare tokens, or exported board data.
 
 ## Deployment identity
 
-Production builds must set `CORRESPONDING_SOURCE_URL` to the immutable GitHub
-URL for the exact deployed commit. A moving branch URL is not sufficient for
-release verification.
+Production builds must set `RELEASE_GIT_SHA` and `CORRESPONDING_SOURCE_URL` to
+the immutable GitHub URL for that exact deployed commit. The Node client uses
+the matching `WBO_RELEASE_GIT_SHA` and `WBO_CORRESPONDING_SOURCE_URL` values.
+A moving branch URL is rejected by both runtimes.
 
 Public board origin:
 
@@ -44,6 +45,10 @@ Public board origin:
 Administrator origin, protected separately by Cloudflare Access:
 
 `https://admin-doodle.bloodweavearchive.com`
+
+Worker API/WebSocket origin:
+
+`https://api-doodle.bloodweavearchive.com`
 
 ## Upstream and license
 

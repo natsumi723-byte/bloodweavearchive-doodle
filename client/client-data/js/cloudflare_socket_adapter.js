@@ -193,6 +193,7 @@ export class CloudflareSocket {
     const routePrefix = requiresAdmin ? "/api/admin/boards" : "/api/boards";
     const url = `${this.baseUrl}${routePrefix}/${encodeURIComponent(this.boardName)}/socket`;
     const protocols = ["bwa-v2", `owner.${boardToken(this.boardName)}`];
+    protocols.push(`socket.${this.id}`);
     if (requiresAdmin && !elevated) {
       leaveCancelledAdminEntry(this.boardName);
       return;
@@ -318,6 +319,14 @@ export class CloudflareSocket {
   }
 
   receive(message) {
+    if (message.type === "presence.joined" && message.user) {
+      this.dispatch("user_joined", message.user);
+      return;
+    }
+    if (message.type === "presence.left" && message.socketId) {
+      this.dispatch("user_left", { socketId: message.socketId });
+      return;
+    }
     if (message.type === "snapshot") {
       const mutations = message.items.flatMap(
         (item) => item.payload?.mutations || [],

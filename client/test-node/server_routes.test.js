@@ -434,7 +434,7 @@ test("index route renders absolute canonical and hreflang urls", async () => {
     const origin = `http://127.0.0.1:${port}`;
 
     assert.equal(response.statusCode, 200);
-    assert.match(arabicResponse.body, /<html\b[^>]*lang="ar"[^>]*dir="rtl"/);
+    assert.match(arabicResponse.body, /<html\b[^>]*lang="en"[^>]*dir="ltr"/);
     assert.match(
       response.body,
       new RegExp(`<link rel="canonical" href="${origin}/\\?lang=en" />`),
@@ -442,13 +442,13 @@ test("index route renders absolute canonical and hreflang urls", async () => {
     assert.match(
       response.body,
       new RegExp(
-        `<link rel="alternate" hreflang="vi" href="${origin}/\\?lang=vi" />`,
+        `<link rel="alternate" hreflang="zh-CN" href="${origin}/\\?lang=zh-CN" />`,
       ),
     );
     assert.match(
       response.body,
       new RegExp(
-        `<a href="${origin}/\\?lang=vi" hreflang="vi" rel="alternate">vi</a>`,
+        `<a href="${origin}/\\?lang=zh-CN" hreflang="zh-CN" rel="alternate">zh-CN</a>`,
       ),
     );
     assert.doesNotMatch(response.body, /hreflang="vn"/);
@@ -508,7 +508,7 @@ test("rules route uses base path and bundled template with custom webroot", asyn
     const origin = `http://127.0.0.1:${port}`;
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /<h2>Règles de la communauté<\/h2>/);
+    assert.match(response.body, /<h2>Community rules<\/h2>/);
     assert.match(
       response.body,
       new RegExp(`<base href="${origin}/custom/base/path/" />`),
@@ -522,19 +522,19 @@ test("rules route uses base path and bundled template with custom webroot", asyn
     assert.match(
       response.body,
       new RegExp(
-        `<link rel="canonical" href="${origin}/custom/base/path/rules\\?lang=fr" />`,
+        `<link rel="canonical" href="${origin}/custom/base/path/rules\\?lang=en" />`,
       ),
     );
     assert.match(
       response.body,
       new RegExp(
-        `<link rel="alternate" hreflang="vi" href="${origin}/custom/base/path/rules\\?lang=vi" />`,
+        `<link rel="alternate" hreflang="zh-CN" href="${origin}/custom/base/path/rules\\?lang=zh-CN" />`,
       ),
     );
     assert.match(
       response.body,
       new RegExp(
-        `<a href="${origin}/custom/base/path/rules\\?lang=vi" hreflang="vi" rel="alternate">vi</a>`,
+        `<a href="${origin}/custom/base/path/rules\\?lang=zh-CN" hreflang="zh-CN" rel="alternate">zh-CN</a>`,
       ),
     );
     assert.doesNotMatch(response.body, /\/custom\/base\/rules\?/);
@@ -992,30 +992,28 @@ test("index, manifest, and fallback error pages localize UI strings", async () =
     const missing = await request(app, "/missing-file.txt?lang=fr");
 
     assert.equal(index.statusCode, 200);
-    assert.match(index.body, /alt="Tableau blanc collaboratif"/);
-    assert.match(index.body, /<input type="submit" value="Ouvrir" \/>/);
-    assert.doesNotMatch(index.body, /value="Go"/);
+    assert.match(index.body, /alt="Collaborative whiteboard"/);
+    assert.match(index.body, /<input type="submit" value="Go" \/>/);
 
     assert.equal(manifest.statusCode, 200);
     assert.equal(manifest.headers["content-type"], "application/manifest+json");
     const manifestJson = JSON.parse(manifest.body);
-    assert.equal(manifestJson.name, "WBO — Tableau blanc collaboratif");
+    assert.equal(manifestJson.name, "WBO — Collaborative whiteboard");
     assert.equal(
       manifestJson.description,
-      "Logiciel libre pour collaborer en ligne sur un tableau blanc. Venez dessiner vos idées ensemble sur WBO !",
+      "A free and open-source online collaborative drawing tool. Sketch new ideas together on WBO!",
     );
 
     assert.equal(missing.statusCode, 404);
     assert.match(
       missing.body,
-      /<p class="message">Une erreur inconnue s’est produite, veuillez recharger la page<\/p>/,
+      /<p class="message">An unknown error occurred\. Please reload the page\.<\/p>/,
     );
     assert.match(
       missing.body,
-      /<a class="home-link" href="[^"]+">Retour à WBO<\/a>/,
+      /<a class="home-link" href="[^"]+">Back to WBO<\/a>/,
     );
     assert.doesNotMatch(missing.body, /Sorry, an error occured/);
-    assert.doesNotMatch(missing.body, />Back to WBO</);
   } finally {
     await closeServer(app);
   }
@@ -1329,6 +1327,34 @@ test("board pages inline the authoritative svg baseline before client boot", asy
       response.body,
       /<div id="board">\s*<svg id="canvas" width="4000" height="4000" version="1\.1" xmlns="http:\/\/www\.w3\.org\/2000\/svg">\s*<defs id="defs"><\/defs>\s*<g id="drawingArea"><\/g>\s*<g id="cursors"><\/g>\s*<\/svg>/,
     );
+  } finally {
+    await closeServer(app);
+  }
+});
+
+test("Cloudflare-authoritative pages never inline Node-local board history", async () => {
+  const dirs = await createServerDirs();
+  await fs.writeFile(
+    boardSvgFile(dirs.historyDir, "cloudflare-authority"),
+    '<svg id="canvas" xmlns="http://www.w3.org/2000/svg" data-wbo-format="whitebophir-svg-v2" data-wbo-seq="99"><defs id="defs"></defs><g id="drawingArea"><path id="stale-local" d="M 1 1 L 2 2"></path></g><g id="cursors"></g></svg>',
+    "utf8",
+  );
+  const app = await createTestServer(
+    createServerConfig(dirs, {
+      WEBROOT: CLIENT_WEBROOT,
+      CLOUDFLARE_AUTHORITATIVE: true,
+      CLOUDFLARE_BACKEND_URL: "ws://127.0.0.1:5042",
+    }),
+  );
+  try {
+    const response = await request(app, "/boards/cloudflare-authority");
+    assert.equal(response.statusCode, 200);
+    assert.doesNotMatch(response.body, /stale-local|data-wbo-seq="99"/);
+    assert.match(
+      response.body,
+      /<div id="board">\s*<svg id="canvas"[^>]*data-wbo-format="whitebophir-svg-v2"[^>]*data-wbo-seq="0"/,
+    );
+    assert.match(response.body, /<g id="drawingArea"><\/g>/);
   } finally {
     await closeServer(app);
   }

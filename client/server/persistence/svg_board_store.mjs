@@ -354,7 +354,7 @@ function computeBoardDimensions(board) {
  * @param {number} seq
  * @returns {string}
  */
-function renderServedBaselineSvg(board, metadata, seq) {
+export function renderServedBaselineSvg(board, metadata, seq) {
   const dimensions = computeBoardDimensions(board);
   const { itemTags } = collectSerializedSvgItems(board, {
     normalizeLegacyTools: true,

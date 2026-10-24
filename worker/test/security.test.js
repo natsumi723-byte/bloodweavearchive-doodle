@@ -11,29 +11,43 @@ import {
 import { correspondingSourceUrl } from "../src/source.js";
 
 test("production health requires an exact corresponding-source URL", () => {
+  const releaseSha = "4b4d6cfca2122844b77abf5d16b6f460c034c310";
+  const production = {
+    ENVIRONMENT: "production",
+    SOURCE_REPOSITORY: "natsumi723-byte/bloodweavearchive-doodle",
+    RELEASE_GIT_SHA: releaseSha,
+  };
   assert.equal(correspondingSourceUrl({ ENVIRONMENT: "production" }), null);
   assert.equal(
     correspondingSourceUrl({
-      ENVIRONMENT: "production",
+      ...production,
       CORRESPONDING_SOURCE_URL: "https://github.com/lovasoa/whitebophir",
     }),
     null,
   );
   assert.equal(
     correspondingSourceUrl({
-      ENVIRONMENT: "production",
+      ...production,
       CORRESPONDING_SOURCE_URL: "http://example.com/source",
     }),
     null,
   );
   assert.equal(
     correspondingSourceUrl({
-      ENVIRONMENT: "production",
+      ...production,
       CORRESPONDING_SOURCE_URL:
-        "https://github.com/example/bwa-source/tree/release-2026-10-24",
+        `https://github.com/natsumi723-byte/bloodweavearchive-doodle/tree/${releaseSha}`,
     }),
-    "https://github.com/example/bwa-source/tree/release-2026-10-24",
+    `https://github.com/natsumi723-byte/bloodweavearchive-doodle/tree/${releaseSha}`,
   );
+  assert.equal(correspondingSourceUrl({
+    ...production,
+    CORRESPONDING_SOURCE_URL: "https://github.com/natsumi723-byte/bloodweavearchive-doodle/tree/main",
+  }), null);
+  assert.equal(correspondingSourceUrl({
+    ...production,
+    CORRESPONDING_SOURCE_URL: `https://github.com/example/unrelated/tree/${releaseSha}`,
+  }), null);
 });
 
 test("origin allowlist is exact and fails closed", () => {

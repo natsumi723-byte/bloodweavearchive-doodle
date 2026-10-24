@@ -3,17 +3,22 @@ import { createBackupBundle } from "../src/backup.js";
 
 const endpoint = process.argv[2] || "http://127.0.0.1:5042";
 const boardId = "qa-backup-lifecycle";
-const vars = Object.fromEntries(fs.readFileSync(new URL("../.dev.vars", import.meta.url), "utf8")
-  .split(/\r?\n/)
-  .filter((line) => line && !line.startsWith("#") && line.includes("="))
-  .map((line) => {
-    const separator = line.indexOf("=");
-    return [line.slice(0, separator), line.slice(separator + 1).trim().replace(/^"|"$/g, "")];
-  }));
+const varsPath = new URL("../.dev.vars", import.meta.url);
+const vars = fs.existsSync(varsPath)
+  ? Object.fromEntries(fs.readFileSync(varsPath, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => line && !line.startsWith("#") && line.includes("="))
+    .map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1).trim().replace(/^"|"$/g, "")];
+    }))
+  : {};
+const adminSecret = process.env.INTEGRATION_ADMIN_SECRET || vars.ADMIN_SECRET;
+if (!adminSecret) throw new Error("INTEGRATION_ADMIN_SECRET_required");
 const headers = {
   Origin: "http://127.0.0.1:5043",
   "Cf-Access-Jwt-Assertion": "local-test-assertion",
-  Authorization: `Bearer ${vars.ADMIN_SECRET}`,
+  Authorization: `Bearer ${adminSecret}`,
 };
 const base = `${endpoint}/api/admin/boards/${boardId}`;
 

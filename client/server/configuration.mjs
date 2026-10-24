@@ -176,11 +176,24 @@ export const CORRESPONDING_SOURCE_URL = parseStringEnv(
   IS_DEVELOPMENT ? "https://github.com/lovasoa/whitebophir" : "",
 );
 
+/** Exact Git commit served by this client release. */
+export const RELEASE_GIT_SHA = parseStringEnv("WBO_RELEASE_GIT_SHA", "");
+
+/** Public repository containing the deployed modified source. */
+export const SOURCE_REPOSITORY = parseStringEnv(
+  "WBO_SOURCE_REPOSITORY",
+  "natsumi723-byte/bloodweavearchive-doodle",
+);
+
 /** Secure Cloudflare Worker WebSocket origin used by the BWA board client. */
 export const CLOUDFLARE_BACKEND_URL = parseStringEnv(
   "WBO_CLOUDFLARE_BACKEND_URL",
   IS_DEVELOPMENT ? "ws://127.0.0.1:5042" : "",
 );
+
+/** Whether Durable Objects, rather than Node-local SVG, own board state. */
+export const CLOUDFLARE_AUTHORITATIVE =
+  !IS_DEVELOPMENT || process.env.WBO_CLOUDFLARE_AUTHORITATIVE === "true";
 
 if (!IS_DEVELOPMENT) {
   let backendUrl;
@@ -202,12 +215,15 @@ if (!IS_DEVELOPMENT) {
   }
 }
 
-if (
-  !IS_DEVELOPMENT &&
-  (!CORRESPONDING_SOURCE_URL ||
-    CORRESPONDING_SOURCE_URL === "https://github.com/lovasoa/whitebophir")
-) {
-  throw new Error(
-    "WBO_CORRESPONDING_SOURCE_URL must identify the exact modified source in production.",
-  );
+if (!IS_DEVELOPMENT) {
+  const normalizedSha = RELEASE_GIT_SHA.trim().toLowerCase();
+  const expectedSourceUrl = `https://github.com/${SOURCE_REPOSITORY}/tree/${normalizedSha}`;
+  if (
+    !/^[0-9a-f]{40}$/.test(normalizedSha) ||
+    CORRESPONDING_SOURCE_URL !== expectedSourceUrl
+  ) {
+    throw new Error(
+      "WBO_CORRESPONDING_SOURCE_URL must identify the exact WBO_RELEASE_GIT_SHA in WBO_SOURCE_REPOSITORY.",
+    );
+  }
 }

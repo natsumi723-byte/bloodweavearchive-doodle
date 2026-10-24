@@ -118,10 +118,12 @@ read-only boards. Legacy JSON boards are migrated to SVG when loaded.
 
 ## Configuration
 
-Production deployments must set `WBO_CORRESPONDING_SOURCE_URL` to the exact
-public modified-source revision (for example, a Git tag or immutable commit
-tree). Startup fails in production when this value is absent or still points
-only to the upstream WBO repository.
+Production deployments must set `WBO_RELEASE_GIT_SHA` and
+`WBO_CORRESPONDING_SOURCE_URL` to the exact public modified-source commit.
+The URL must equal
+`https://github.com/<WBO_SOURCE_REPOSITORY>/tree/<WBO_RELEASE_GIT_SHA>`;
+moving branches, tags, upstream-only URLs, and mismatched commits fail startup.
+See `.env.example` for the complete non-secret production shape.
 
 When you start a WBO server, it loads its configuration from several environment variables.
 You can see a list of these variables in [`configuration.mjs`](./server/configuration.mjs).

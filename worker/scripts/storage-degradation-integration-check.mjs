@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import WebSocket from "ws";
 
-const endpoint = process.argv[2] || "ws://127.0.0.1:5042/api/boards/qa-storage-degradation/socket";
+const boardId = `qa-storage-degradation-${crypto.randomUUID().replaceAll("-", "")}`;
+const endpoint =
+  process.argv[2] ||
+  `ws://127.0.0.1:5042/api/boards/${boardId}/socket`;
 const origin = process.env.INTEGRATION_ORIGIN || "http://127.0.0.1:5043";
 const adminSecret = process.env.INTEGRATION_ADMIN_SECRET;
 if (!adminSecret) throw new Error("INTEGRATION_ADMIN_SECRET_required");
@@ -82,14 +85,20 @@ assert.equal((await until(a, (message) => message.code === "board_full")).code, 
 a.close();
 const reconnect = await connect("A".repeat(43));
 assert.equal((await next(reconnect)).type, "snapshot");
-assert.equal((await next(reconnect)).code, "read_only_degraded");
+assert.equal(
+  (await until(reconnect, (message) => message.code === "read_only_degraded")).code,
+  "read_only_degraded",
+);
 const blocked = commit(`stroke_${crypto.randomUUID().replaceAll("-", "")}`);
 reconnect.send(JSON.stringify(blocked));
 assert.equal((await until(reconnect, (message) => message.mutationId === blocked.mutationId)).code, "read_only_degraded");
 
 const admin = await connect("C".repeat(43), true);
 assert.equal((await next(admin)).type, "snapshot");
-assert.equal((await next(admin)).code, "read_only_degraded");
+assert.equal(
+  (await until(admin, (message) => message.code === "read_only_degraded")).code,
+  "read_only_degraded",
+);
 const clearMutationId = `mutation_${crypto.randomUUID().replaceAll("-", "")}`;
 admin.send(JSON.stringify({ type: "admin.delete_all", mutationId: clearMutationId }));
 assert.equal((await until(admin, (message) => message.type === "board.recovered")).type, "board.recovered");

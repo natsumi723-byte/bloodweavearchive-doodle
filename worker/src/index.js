@@ -4,9 +4,28 @@ import { ownerHash, verifySecret } from "./ownership.js";
 import { adminDataRoute, hasAccessAssertion, hasAdminProtocol, originAllowed, socketRoute } from "./security.js";
 import { createBackupBundle, createGoogleDriveClient, runBackupRotation, validateBackupBundle } from "./backup.js";
 import { correspondingSourceUrl } from "./source.js";
+import { productionConfigErrors, requireProductionConfig } from "./config.js";
 
 function errorFrame(code, mutationId = null) {
   return JSON.stringify({ type: "error", code, mutationId });
+}
+
+function presenceUser(attachment) {
+  const suffix = String(attachment.ownerHash || "guest").slice(-4).toUpperCase();
+  return {
+    socketId: attachment.socketId,
+    userId: String(attachment.ownerHash || "").slice(0, 16),
+    name: `Visitor ${suffix}`,
+    color: "#8A3046",
+    size: 4,
+    lastTool: "hand",
+    joinedAt: attachment.joinedAt,
+    canEdit: true,
+    canClear: attachment.isAdmin === true,
+    canBan: false,
+    canGrantTemporaryModerator: false,
+    position: { x: 2500, y: 2500 },
+  };
 }
 
 export class BoardRoom extends DurableObject {
@@ -52,6 +71,7 @@ export class BoardRoom extends DurableObject {
       .map((value) => value.trim());
     const token = protocols.find((value) => value.startsWith("owner."))?.slice(6);
     const adminToken = protocols.find((value) => value.startsWith("admin."))?.slice(6);
+    const requestedSocketId = protocols.find((value) => value.startsWith("socket."))?.slice(7);
     if (!validOwnerToken(token)) return jsonResponse({ error: "invalid_owner_token" }, 401);
     const secret = this.env.OWNERSHIP_SECRET;
     if (!secret || secret.length < 32) return jsonResponse({ error: "server_not_configured" }, 503);
@@ -63,10 +83,14 @@ export class BoardRoom extends DurableObject {
     this.ctx.acceptWebSocket(server);
     const dropAckOnce = this.env.ENABLE_TEST_FAULTS === "true" &&
       boardId.startsWith("qa-lost-ack-");
-    server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce });
+    const socketId = /^cf-[0-9a-f-]{36}$/i.test(requestedSocketId || "")
+      ? requestedSocketId
+      : `cf-${crypto.randomUUID()}`;
+    const joinedAt = Date.now();
+    server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce, socketId, joinedAt });
     const degraded = this.isBoardDegraded();
     if (degraded) {
-      server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce, degraded: true });
+      server.serializeAttachment({ boardId, ownerHash: identity, isAdmin, dropAckOnce, socketId, joinedAt, degraded: true });
     }
     const rows = [...this.sql.exec(
       "SELECT id, payload, sequence FROM strokes WHERE deleted_at IS NULL ORDER BY sequence",
@@ -75,6 +99,15 @@ export class BoardRoom extends DurableObject {
       type: "snapshot",
       items: rows.map((row) => ({ id: row.id, payload: JSON.parse(row.payload), sequence: row.sequence })),
     }));
+    const joinedUser = presenceUser(server.deserializeAttachment());
+    for (const peer of this.ctx.getWebSockets()) {
+      if (peer === server) continue;
+      const peerAttachment = peer.deserializeAttachment() || {};
+      if (!peerAttachment.socketId) continue;
+      server.send(JSON.stringify({ type: "presence.joined", user: presenceUser(peerAttachment) }));
+      try { peer.send(JSON.stringify({ type: "presence.joined", user: joinedUser })); } catch {}
+    }
+    server.send(JSON.stringify({ type: "presence.joined", user: joinedUser }));
     if (degraded) server.send(errorFrame("read_only_degraded"));
     return new Response(null, {
       status: 101,
@@ -349,7 +382,11 @@ export class BoardRoom extends DurableObject {
     );
   }
 
-  webSocketClose() {}
+  webSocketClose(socket) {
+    const attachment = socket.deserializeAttachment() || {};
+    if (!attachment.socketId) return;
+    this.broadcast({ type: "presence.left", socketId: attachment.socketId }, socket);
+  }
 
   webSocketError() {}
 
@@ -373,7 +410,12 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
       const source = correspondingSourceUrl(env);
-      if (!source) return jsonResponse({ ok: false, error: "corresponding_source_not_configured" }, 503);
+      const configurationErrors = env.ENVIRONMENT === "production"
+        ? productionConfigErrors(env)
+        : [];
+      if (!source || configurationErrors.length) {
+        return jsonResponse({ ok: false, error: "production_config_invalid", configurationErrors }, 503);
+      }
       return jsonResponse({ ok: true, storage: "durable-object-sqlite", source });
     }
     const dataRoute = adminDataRoute(url.pathname);
@@ -431,6 +473,7 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
+    if (env.ENVIRONMENT === "production") requireProductionConfig(env);
     const boardIds = String(env.BACKUP_BOARD_IDS || "").split(",").map((value) => normalizeBoardId(value)).filter(Boolean);
     if (!boardIds.length || !env.GOOGLE_DRIVE_FOLDER_ID) throw new Error("backup_not_configured");
     const drive = createGoogleDriveClient(env);

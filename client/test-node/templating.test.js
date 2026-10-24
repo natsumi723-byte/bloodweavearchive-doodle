@@ -71,7 +71,7 @@ test("Template.parameters ignores spoofed forwarded host/proto on a direct deplo
   assert.equal(parameters.baseHref, "http://real.example/prefix/");
 });
 
-test("Template.parameters prefers an exact region match over a loose base-language match", async () => {
+test("Template.parameters maps supported Chinese variants to the public zh-CN locale", async () => {
   const template = await createTemplate();
   const request = {
     url: "/boards/demo",
@@ -90,10 +90,10 @@ test("Template.parameters prefers an exact region match over a loose base-langua
     {},
   );
 
-  assert.equal(parameters.language, "zh-TW");
+  assert.equal(parameters.language, "zh-CN");
 });
 
-test("Template.parameters falls back loosely by base language when region is unsupported", async () => {
+test("Template.parameters falls back to English outside the public locale allowlist", async () => {
   const template = await createTemplate();
   const request = {
     url: "/boards/demo",
@@ -112,5 +112,5 @@ test("Template.parameters falls back loosely by base language when region is uns
     {},
   );
 
-  assert.equal(parameters.language, "fr");
+  assert.equal(parameters.language, "en");
 });

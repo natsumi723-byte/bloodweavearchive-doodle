@@ -3,6 +3,7 @@ import { respondWithErrorPage } from "../http/observation.mjs";
 import observability from "../observability/index.mjs";
 import {
   readBoardDocumentState,
+  renderServedBaselineSvg,
   streamServedBaseline,
 } from "../persistence/svg_board_store.mjs";
 import {
@@ -69,7 +70,11 @@ async function serveBoardPage(ctx) {
     return;
   }
 
-  if (await serveLoadedBoardCacheHit(ctx, pageRequest)) return;
+  if (
+    !usesCloudflareAuthority(ctx) &&
+    (await serveLoadedBoardCacheHit(ctx, pageRequest))
+  )
+    return;
 
   const document = await readBoardDocumentForPage(ctx, pageRequest);
   ctx.observed.annotate({
@@ -90,6 +95,16 @@ async function serveBoardPage(ctx) {
     ctx.runtime.config,
   );
   await renderBoardDocument(ctx, pageRequest, document);
+}
+
+/**
+ * Cloudflare deployments use the Durable Object snapshot as the sole board
+ * authority. The Node process serves only the HTML shell and static assets.
+ * @param {HttpRouteContext} ctx
+ * @returns {boolean}
+ */
+function usesCloudflareAuthority(ctx) {
+  return ctx.runtime.config.CLOUDFLARE_AUTHORITATIVE === true;
 }
 
 /**
@@ -153,9 +168,17 @@ async function serveLoadedBoardCacheHit(ctx, pageRequest) {
 /**
  * @param {HttpRouteContext} ctx
  * @param {BoardPageDocumentRequest} pageRequest
- * @returns {ReturnType<typeof readBoardDocumentState>}
+ * @returns {Promise<{metadata: {readonly: boolean, seq?: number}, inlineBoardSvg: string | null, source: "generated" | "svg" | "svg_backup", byteLength: number}>}
  */
 function readBoardDocumentForPage(ctx, pageRequest) {
+  if (usesCloudflareAuthority(ctx)) {
+    return Promise.resolve({
+      source: "generated",
+      byteLength: 0,
+      metadata: { seq: 0, readonly: false },
+      inlineBoardSvg: renderServedBaselineSvg({}, { readonly: false }, 0),
+    });
+  }
   return tracing.withRecordingActiveSpan(
     "board.document_state_read",
     {

@@ -5,8 +5,7 @@
   "compatibility_date": "2026-10-23",
   "workers_dev": false,
   "routes": [
-    { "pattern": "doodle.bloodweavearchive.com", "custom_domain": true },
-    { "pattern": "admin-doodle.bloodweavearchive.com", "custom_domain": true }
+    { "pattern": "api-doodle.bloodweavearchive.com", "custom_domain": true }
   ],
   "durable_objects": {
     "bindings": [
@@ -28,6 +27,11 @@
   "vars": {
     "ENVIRONMENT": "production",
     "BOARD_MAX_ITEMS": "300000",
+    "BACKUP_BOARD_IDS": "bwa-unfinished-archive",
+    "GOOGLE_DRIVE_FOLDER_ID": "1jz_Li-2T8MivoZ7KECHccNdKYzY9KrQ9",
+    "SOURCE_REPOSITORY": "natsumi723-byte/bloodweavearchive-doodle",
+    "ACCESS_TEAM_DOMAIN": "https://steep-disk-9622.cloudflareaccess.com",
+    "ACCESS_POLICY_AUD": "b3a665a19257235ed1fee89af1b7a8f1c840b75ba4a0792c5b791fad5b5277a6",
     "ALLOWED_PUBLIC_ORIGINS": "https://doodle.bloodweavearchive.com",
     "ALLOWED_ADMIN_ORIGINS": "https://admin-doodle.bloodweavearchive.com"
   },

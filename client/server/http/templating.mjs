@@ -40,8 +40,10 @@ const TRANSLATIONS = JSON.parse(
   fs.readFileSync(path.join(HTTP_DIR, "translations.json"), "utf8"),
 );
 
-const languages = Object.keys(TRANSLATIONS);
 const BWA_BOARD_LANGUAGES = ["en", "zh-CN"];
+// The inherited catalog remains available for isolated upstream regression
+// tests, but the BWA deployment exposes only its two supported locales.
+const languages = BWA_BOARD_LANGUAGES;
 
 handlebars.registerHelper({
   json: JSON.stringify.bind(JSON),

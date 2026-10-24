@@ -1,6 +1,6 @@
 # BWA Cloudflare board v2 candidate
 
-Local-only migration candidate for `众人手记`. It targets Workers Free with one
+Deployment candidate for `众人手记`. It targets Workers Free with one
 SQLite-backed Durable Object per board and hibernatable WebSockets.
 
 ## Local run
@@ -43,4 +43,10 @@ ephemeral. Deletion succeeds only when the board-scoped HMAC of the current
 browser token matches the stored owner hash. IP addresses are not stored or used
 for ownership.
 
-This candidate is not deployed and is not yet wired to the accepted v9 UI.
+The deployable topology has three non-overlapping hosts: the Node client serves
+public HTML/assets on `doodle.bloodweavearchive.com` and administrator HTML/assets
+on `admin-doodle.bloodweavearchive.com`; this Worker exclusively owns
+`api-doodle.bloodweavearchive.com`. Cloudflare Access protects the Worker's
+`/api/admin/*` paths. In Cloudflare-authoritative mode the Node server emits an
+empty board shell and never reads or inlines its local SVG history; the Durable
+Object snapshot is the only persisted board baseline.

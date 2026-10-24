@@ -1083,6 +1083,10 @@ export function normalizeServerRenderedElement(state, line) {
   if (!(line instanceof SVGPathElement)) return;
   delete state.pathDataCache[line.id];
   const d = line.getAttribute("d") || "";
+  // Empty SVG helper paths are valid structural placeholders, not persisted
+  // pencil strokes. They require no geometry normalization and must not emit a
+  // runtime warning on a clean board.
+  if (!d.trim()) return;
   // Live/replayed strokes already contain curves. Do not decode them again
   // when another normalization pass runs over the same board.
   if (d.includes("C") || d.includes("c")) return;

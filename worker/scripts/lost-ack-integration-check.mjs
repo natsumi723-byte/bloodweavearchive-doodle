@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import WebSocket from "ws";
 
-const endpoint = process.argv[2] || "ws://127.0.0.1:5042/api/boards/qa-lost-ack-runtime/socket";
+const boardId = `qa-lost-ack-${crypto.randomUUID().replaceAll("-", "")}`;
+const endpoint =
+  process.argv[2] ||
+  `ws://127.0.0.1:5042/api/boards/${boardId}/socket`;
 const origin = process.env.INTEGRATION_ORIGIN || "http://127.0.0.1:5043";
 const owner = "L".repeat(43);
 const strokeId = `stroke_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -30,18 +33,28 @@ function next(socket, event = "message", timeout = 4000) {
   });
 }
 
+async function nextMessageType(socket, type, timeout = 4000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const message = JSON.parse(
+      (await next(socket, "message", deadline - Date.now())).toString(),
+    );
+    if (message.type === type) return message;
+  }
+  throw new Error(`${type}_timeout`);
+}
+
 const first = await connect();
-JSON.parse((await next(first)).toString());
+await nextMessageType(first, "snapshot");
 const closed = next(first, "close");
 first.send(JSON.stringify(frame));
 await closed;
 
 const second = await connect();
-const snapshot = JSON.parse((await next(second)).toString());
+const snapshot = await nextMessageType(second, "snapshot");
 assert.equal(snapshot.items.filter((item) => item.id === strokeId).length, 1);
-const ackPromise = next(second);
 second.send(JSON.stringify(frame));
-const ack = JSON.parse((await ackPromise).toString());
+const ack = await nextMessageType(second, "mutation.ack");
 assert.equal(ack.type, "mutation.ack");
 assert.equal(ack.mutationId, frame.mutationId);
 assert.equal(ack.duplicate, true);
