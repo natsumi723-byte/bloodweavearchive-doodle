@@ -171,11 +171,30 @@ export function installBwaChrome(tools) {
     focus.setAttribute("aria-pressed", String(!active));
   });
 
+  const closeMoreMenu = () => {
+    root.dataset.bwaMore = "false";
+    more?.setAttribute("aria-expanded", "false");
+  };
+
   more?.addEventListener("click", () => {
     const active = root.dataset.bwaMore === "true";
     root.dataset.bwaMore = String(!active);
     more.setAttribute("aria-expanded", String(!active));
   });
+
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (root.dataset.bwaMore !== "true") return;
+      const target = event.target;
+      if (target instanceof Node && more?.closest("#menu")?.contains(target))
+        return;
+      closeMoreMenu();
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    { capture: true },
+  );
 
   style?.addEventListener("toggle", () => {
     root.dataset.bwaStyleOpen = String(style.open);
@@ -194,8 +213,7 @@ export function installBwaChrome(tools) {
       return;
     }
     if (root.dataset.bwaMore === "true") {
-      root.dataset.bwaMore = "false";
-      more?.setAttribute("aria-expanded", "false");
+      closeMoreMenu();
       more?.focus();
       event.preventDefault();
       return;
