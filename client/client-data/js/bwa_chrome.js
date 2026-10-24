@@ -175,6 +175,35 @@ export function installBwaChrome(tools) {
     root.dataset.bwaMore = "false";
     more?.setAttribute("aria-expanded", "false");
   };
+  /** @type {number | null} */
+  let dismissingPointerId = null;
+  /** @type {number | null} */
+  let dismissingTouchId = null;
+  let dismissingPointerType = "";
+  let suppressDismissClick = false;
+  let dismissResetTimer = 0;
+  const clearDismissGesture = () => {
+    dismissingPointerId = null;
+    dismissingTouchId = null;
+    dismissingPointerType = "";
+    suppressDismissClick = false;
+    window.clearTimeout(dismissResetTimer);
+    dismissResetTimer = 0;
+  };
+  /** @param {Event} event */
+  const consumeDismissEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  /** @param {PointerEvent} event */
+  const beginDismissGesture = (event) => {
+    dismissingPointerId = event.pointerId;
+    dismissingPointerType = event.pointerType;
+    dismissingTouchId = null;
+    suppressDismissClick = true;
+    window.clearTimeout(dismissResetTimer);
+    dismissResetTimer = window.setTimeout(clearDismissGesture, 1_000);
+  };
 
   more?.addEventListener("click", () => {
     const active = root.dataset.bwaMore === "true";
@@ -190,8 +219,69 @@ export function installBwaChrome(tools) {
       if (target instanceof Node && more?.closest("#menu")?.contains(target))
         return;
       closeMoreMenu();
-      event.preventDefault();
-      event.stopPropagation();
+      beginDismissGesture(event);
+      consumeDismissEvent(event);
+    },
+    { capture: true },
+  );
+  document.addEventListener(
+    "pointerup",
+    (event) => {
+      if (event.pointerId !== dismissingPointerId) return;
+      consumeDismissEvent(event);
+      dismissingPointerId = null;
+    },
+    { capture: true },
+  );
+  document.addEventListener(
+    "pointercancel",
+    (event) => {
+      if (event.pointerId !== dismissingPointerId) return;
+      consumeDismissEvent(event);
+      clearDismissGesture();
+    },
+    { capture: true },
+  );
+  document.addEventListener(
+    "touchstart",
+    (event) => {
+      if (!suppressDismissClick || dismissingTouchId !== null) return;
+      dismissingTouchId = event.changedTouches[0]?.identifier ?? null;
+      consumeDismissEvent(event);
+    },
+    { capture: true, passive: false },
+  );
+  document.addEventListener(
+    "touchend",
+    (event) => {
+      if (
+        dismissingTouchId === null ||
+        !Array.from(event.changedTouches).some(
+          (touch) => touch.identifier === dismissingTouchId,
+        )
+      )
+        return;
+      consumeDismissEvent(event);
+      dismissingTouchId = null;
+      if (dismissingPointerType === "touch") clearDismissGesture();
+    },
+    { capture: true, passive: false },
+  );
+  document.addEventListener(
+    "touchcancel",
+    (event) => {
+      if (dismissingTouchId === null) return;
+      consumeDismissEvent(event);
+      clearDismissGesture();
+    },
+    { capture: true, passive: false },
+  );
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!suppressDismissClick) return;
+      consumeDismissEvent(event);
+      clearDismissGesture();
     },
     { capture: true },
   );
