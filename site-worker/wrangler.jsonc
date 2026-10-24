@@ -8,6 +8,12 @@
     { "pattern": "doodle.bloodweavearchive.com", "custom_domain": true },
     { "pattern": "admin-doodle.bloodweavearchive.com", "custom_domain": true }
   ],
+  "services": [
+    {
+      "binding": "API",
+      "service": "bwa-unfinished-archive-v2"
+    }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

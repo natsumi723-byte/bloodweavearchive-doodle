@@ -5,6 +5,7 @@ import test from "node:test";
 import worker, {
   boardPath,
   canonicalBoardRequest,
+  isAdminApiRequest,
   preferredLanguage,
 } from "../src/index.js";
 
@@ -81,4 +82,52 @@ test("public and admin hosts cannot cross into each other's route", async () => 
     adminResponse.headers.get("location"),
     "https://admin-doodle.example/admin/bwa-unfinished-archive",
   );
+});
+
+test("only the Access-protected admin host proxies administrator API traffic", async () => {
+  const forwarded = [];
+  const env = {
+    BOARD_ID: "bwa-unfinished-archive",
+    PUBLIC_HOST: "doodle.example",
+    ADMIN_HOST: "admin-doodle.example",
+    API: {
+      fetch(request) {
+        forwarded.push(request);
+        return new Response("proxied");
+      },
+    },
+    ASSETS: {
+      fetch() {
+        return new Response("asset");
+      },
+    },
+  };
+  const adminUrl = new URL(
+    "https://admin-doodle.example/api/admin/boards/archive/socket",
+  );
+  assert.equal(isAdminApiRequest(adminUrl, adminUrl.hostname, env), true);
+
+  const assertion = "signed-access-assertion";
+  const adminRequest = new Request(adminUrl, {
+    headers: {
+      "Cf-Access-Jwt-Assertion": assertion,
+      Origin: "https://admin-doodle.example",
+    },
+  });
+  const adminResponse = await worker.fetch(adminRequest, env);
+  assert.equal(await adminResponse.text(), "proxied");
+  assert.equal(forwarded.length, 1);
+  assert.equal(
+    forwarded[0].headers.get("Cf-Access-Jwt-Assertion"),
+    assertion,
+  );
+
+  const publicResponse = await worker.fetch(
+    new Request(
+      "https://doodle.example/api/admin/boards/archive/socket",
+    ),
+    env,
+  );
+  assert.equal(await publicResponse.text(), "asset");
+  assert.equal(forwarded.length, 1);
 });

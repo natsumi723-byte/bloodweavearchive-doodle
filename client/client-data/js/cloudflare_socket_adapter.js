@@ -193,7 +193,10 @@ export class CloudflareSocket {
 
   openConnection(requiresAdmin, elevated) {
     const routePrefix = requiresAdmin ? "/api/admin/boards" : "/api/boards";
-    const url = `${this.baseUrl}${routePrefix}/${encodeURIComponent(this.boardName)}/socket`;
+    const socketBaseUrl = requiresAdmin
+      ? `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`
+      : this.baseUrl;
+    const url = `${socketBaseUrl}${routePrefix}/${encodeURIComponent(this.boardName)}/socket`;
     const protocols = ["bwa-v2", `owner.${boardToken(this.boardName)}`];
     protocols.push(`socket.${this.id}`);
     if (requiresAdmin && !elevated) {

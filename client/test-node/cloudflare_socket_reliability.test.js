@@ -186,7 +186,11 @@ test("Cloudflare adapter uses a distinct Access-protected route for admins", asy
   const previousLocalStorage = global.localStorage;
   /** @type {any[]} */
   const opened = [];
-  global.location = /** @type {any} */ ({ pathname: "/admin/archive" });
+  global.location = /** @type {any} */ ({
+    pathname: "/admin/archive",
+    protocol: "https:",
+    host: "admin-doodle.example",
+  });
   global.window = /** @type {any} */ ({
     prompt: () => "admin-secret",
     addEventListener() {},
@@ -219,7 +223,7 @@ test("Cloudflare adapter uses a distinct Access-protected route for admins", asy
     new CloudflareSocket("https://worker.invalid", "archive").connect();
     assert.equal(
       opened[0].url,
-      "https://worker.invalid/api/admin/boards/archive/socket",
+      "wss://admin-doodle.example/api/admin/boards/archive/socket",
     );
     assert.equal(opened[0].protocols.includes("admin.admin-secret"), true);
   } finally {
@@ -245,7 +249,11 @@ test("Cloudflare adapter exposes and sends delete-all only for an unlocked admin
   const sent = [];
   /** @type {any[]} */
   const states = [];
-  globalAny.location = { pathname: "/admin/archive" };
+  globalAny.location = {
+    pathname: "/admin/archive",
+    protocol: "https:",
+    host: "admin-doodle.example",
+  };
   globalAny.window = { prompt: () => "admin-secret", addEventListener() {} };
   globalAny.document = { addEventListener() {}, visibilityState: "visible" };
   globalAny.sessionStorage = { removeItem() {} };

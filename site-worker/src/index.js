@@ -25,6 +25,12 @@ function canonicalBoardRequest(url, kind, boardId) {
   return url.pathname === boardPath(kind, boardId);
 }
 
+function isAdminApiRequest(url, host, env) {
+  return (
+    host === env.ADMIN_HOST && url.pathname.startsWith("/api/admin/boards/")
+  );
+}
+
 async function serveBoard(request, env, kind) {
   const url = new URL(request.url);
   const language = preferredLanguage(url, request);
@@ -67,6 +73,10 @@ export default {
     if (host !== expectedHost)
       return new Response("Not found", { status: 404 });
 
+    if (isAdminApiRequest(url, host, env)) {
+      return env.API.fetch(request);
+    }
+
     if (url.pathname === "/" || url.pathname === `/${kind}`) {
       return redirect(url, boardPath(kind, env.BOARD_ID));
     }
@@ -91,4 +101,9 @@ export default {
   },
 };
 
-export { boardPath, canonicalBoardRequest, preferredLanguage };
+export {
+  boardPath,
+  canonicalBoardRequest,
+  isAdminApiRequest,
+  preferredLanguage,
+};
