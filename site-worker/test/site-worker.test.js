@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import worker, {
@@ -6,6 +7,13 @@ import worker, {
   canonicalBoardRequest,
   preferredLanguage,
 } from "../src/index.js";
+
+test("static assets do not rewrite internal HTML shell fetches", async () => {
+  const config = JSON.parse(
+    await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+  );
+  assert.equal(config.assets.html_handling, "none");
+});
 
 test("language selection only exposes the supported allowlist", () => {
   assert.equal(
