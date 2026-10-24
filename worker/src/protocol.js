@@ -31,7 +31,7 @@ export function parseClientMessage(value) {
       return { ok: false, code: "invalid_batch" };
     }
     const encoded = JSON.stringify(message.operations);
-    if (encoded.length > 262144)
+    if (new TextEncoder().encode(encoded).byteLength > 262144)
       return { ok: false, code: "payload_too_large" };
     const operations = [];
     for (const operation of message.operations) {

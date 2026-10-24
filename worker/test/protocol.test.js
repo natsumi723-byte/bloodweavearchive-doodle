@@ -3,6 +3,32 @@ import assert from "node:assert/strict";
 import { normalizeBoardId, parseClientMessage, validOwnerToken } from "../src/protocol.js";
 import { verifySecret } from "../src/ownership.js";
 
+function batchWithEncodedOperationsBytes(byteLength, multibyte = false) {
+  const message = {
+    type: "stroke.batch",
+    mutationId: "mutation_batch_boundary_1234",
+    operations: [
+      {
+        type: "stroke.commit",
+        id: "stroke_boundary",
+        payload: { text: "" },
+      },
+    ],
+  };
+  const encoder = new TextEncoder();
+  const base = encoder.encode(JSON.stringify(message.operations)).byteLength;
+  const fillBytes = byteLength - base;
+  assert.equal(fillBytes >= 0, true);
+  message.operations[0].payload.text = multibyte
+    ? "界".repeat(Math.floor(fillBytes / 3)) + "a".repeat(fillBytes % 3)
+    : "a".repeat(fillBytes);
+  assert.equal(
+    encoder.encode(JSON.stringify(message.operations)).byteLength,
+    byteLength,
+  );
+  return message;
+}
+
 test("accepts only bounded board identifiers", () => {
   assert.equal(normalizeBoardId("BWA-ARCHIVE-V2"), "bwa-archive-v2");
   assert.equal(normalizeBoardId("../secret"), null);
@@ -60,6 +86,23 @@ test("rejects malformed or empty atomic stroke batches", () => {
     })).code,
     "invalid_batch_operation",
   );
+});
+
+test("atomic batch payload limit uses exact UTF-8 bytes", () => {
+  for (const multibyte of [false, true]) {
+    assert.equal(
+      parseClientMessage(
+        JSON.stringify(batchWithEncodedOperationsBytes(262144, multibyte)),
+      ).ok,
+      true,
+    );
+    assert.equal(
+      parseClientMessage(
+        JSON.stringify(batchWithEncodedOperationsBytes(262145, multibyte)),
+      ).code,
+      "payload_too_large",
+    );
+  }
 });
 
 test("rejects malformed deletes and oversized payloads", () => {
