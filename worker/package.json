@@ -1,24 +1,27 @@
 {
-  "name": "bwa-cloudflare-board-v2",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "license": "AGPL-3.0-or-later",
-  "scripts": {
-    "dev": "wrangler dev",
-    "check": "node --check src/index.js && node --test test/*.test.js",
-    "test": "node --test test/*.test.js",
-    "check:backup-integration": "node scripts/backup-integration-check.mjs",
-    "check:lost-ack-integration": "node scripts/lost-ack-integration-check.mjs",
-    "check:storage-degradation": "node scripts/storage-degradation-integration-check.mjs",
-    "deploy:dry-run": "node scripts/release-wrangler.mjs --dry-run",
-    "deploy": "node scripts/release-wrangler.mjs"
-  },
-  "devDependencies": {
-    "wrangler": "^4.45.0",
-    "ws": "^8.22.0"
-  },
-  "dependencies": {
-    "jose": "^6.2.13"
-  }
+	"name": "bwa-cloudflare-board-v2",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"scripts": {
+		"dev": "wrangler dev",
+		"check": "node --check src/index.js && node --test test/*.test.js",
+		"test": "node --test test/*.test.js",
+		"check:backup-integration": "node scripts/backup-integration-check.mjs",
+		"check:lost-ack-integration": "node scripts/lost-ack-integration-check.mjs",
+		"check:storage-degradation": "node scripts/storage-degradation-integration-check.mjs",
+		"check:ownership-integration": "node scripts/run-integration-fixture.mjs",
+		"check:admin-browser-e2e": "node scripts/admin-browser-e2e.mjs",
+		"deploy:dry-run": "node scripts/release-wrangler.mjs --dry-run",
+		"deploy": "node scripts/release-wrangler.mjs"
+	},
+	"devDependencies": {
+		"playwright": "^1.64.1",
+		"wrangler": "^4.45.0",
+		"ws": "^8.22.0"
+	},
+	"dependencies": {
+		"jose": "^6.2.13"
+	}
 }

@@ -10,6 +10,29 @@ SQLite-backed Durable Object per board and hibernatable WebSockets.
    deployment, or place a 32+ character value in `.dev.vars` for local testing.
 3. Run `npm run dev`.
 
+## Reproducible local release fixtures
+
+The release package includes two self-contained local fixtures. They generate
+fresh non-production credentials in memory, start `wrangler dev --local` on a
+free loopback port, set `ALLOW_MISSING_ACCESS_ASSERTION=true` only in that
+local Worker process, and remove the process afterwards. They never read or
+write production secrets.
+
+After `npm ci`, run:
+- `npm run check:ownership-integration` for a fresh unique-board public/admin
+  WebSocket run covering owner isolation, administrator delete/move,
+  idempotent acknowledgement and persisted replay.
+- `npx playwright install chromium` once, then
+  `npm run check:admin-browser-e2e` for a real browser on a separate loopback
+  origin. It exercises the actual Worker `OPTIONS` preflight, origin check,
+  Access fixture bypass, Bearer verification and export/restore/purge routes,
+  including cancel, failure and success.
+
+Both commands print one JSON result containing their unique board and local
+endpoint/origin. `ALLOW_MISSING_ACCESS_ASSERTION` is absent from
+`wrangler.jsonc`; it is a test-only fixture input and must never be used in a
+deployed environment.
+
 Use `npm run deploy:dry-run` or `npm run deploy`. The wrapper derives the exact
 current commit and immutable public tree URL and supplies both release identity
 bindings to Wrangler. The `/health` endpoint returns 503 when that identity is
