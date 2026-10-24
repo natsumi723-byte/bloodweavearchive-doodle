@@ -1223,9 +1223,6 @@ select {
     pointer-events: auto;
   }
 
-  #menu:focus-within {
-    pointer-events: none;
-  }
 }
 
 #menu .oneTouch:active {

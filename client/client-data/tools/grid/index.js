@@ -25,8 +25,7 @@
  */
 
 /** @import { ToolBootContext, ToolRuntimeModules } from "../../../types/app-runtime" */
-const GRID_STATES = /** @type {const} */ (["none", "url(#grid)", "url(#dots)"]);
-/** @typedef {(typeof GRID_STATES)[number]} GridFill */
+/** @typedef {string} GridFill */
 /** @typedef {ToolRuntimeModules["board"]} GridBoardRuntime */
 /** @typedef {ReturnType<typeof boot>} GridState */
 
@@ -35,6 +34,19 @@ export const shortcut = "g";
 export const oneTouch = true;
 export const mouseCursor = "crosshair";
 export const visibleWhenReadOnly = true;
+
+/**
+ * Fragment-only SVG paint-server references can resolve against the board's
+ * viewport hash instead of the current document in Chromium. Use the full
+ * hash-free document URL so grid patterns keep rendering while pan and zoom
+ * update location.hash.
+ * @param {string} id
+ */
+function paintServerUrl(id) {
+  const documentUrl = new URL(window.location.href);
+  documentUrl.hash = "";
+  return `url("${documentUrl.href}#${id}")`;
+}
 
 /**
  * @param {GridBoardRuntime} board
@@ -80,7 +92,7 @@ function createPatterns(board) {
     board.createSVGElement("rect", {
       width: "3000",
       height: "3000",
-      fill: "url(#smallGrid)",
+      fill: paintServerUrl("smallGrid"),
     }),
   );
   grid.appendChild(
@@ -129,15 +141,16 @@ function createGridContainer(state) {
 /** @param {ToolBootContext} ctx */
 export function boot(ctx) {
   const board = ctx.runtime.board;
+  const states = ["none", paintServerUrl("grid"), paintServerUrl("dots")];
   const gridContainer = createGridContainer({
     board,
     index: 0,
-    states: GRID_STATES,
+    states,
   });
   return {
     board,
     index: 0,
-    states: GRID_STATES,
+    states,
     gridContainer,
   };
 }

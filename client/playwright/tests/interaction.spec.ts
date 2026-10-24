@@ -1018,6 +1018,34 @@ test.describe("single-page interactions", () => {
       });
   });
 
+  test("grid paint servers remain bound to the board document across viewport hashes", async ({
+    boardPage,
+    page,
+  }) => {
+    await boardPage.gotoBoard("grid-hash-reference");
+    await page.evaluate(() => {
+      window.location.hash = "120,240,0.100";
+    });
+    await page.locator("#bwaMoreToggle").click();
+    await boardPage.tool("grid").click();
+
+    const documentUrl = page.url().split("#", 1)[0];
+    await expect(page.locator("#gridContainer")).toHaveAttribute(
+      "fill",
+      `url("${documentUrl}#grid")`,
+    );
+    await expect(page.locator("#grid rect")).toHaveAttribute(
+      "fill",
+      `url("${documentUrl}#smallGrid")`,
+    );
+
+    await boardPage.tool("grid").click();
+    await expect(page.locator("#gridContainer")).toHaveAttribute(
+      "fill",
+      `url("${documentUrl}#dots")`,
+    );
+  });
+
   test("download reopens without clipping complex painted bounds", async ({
     boardPage,
     page,
