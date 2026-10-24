@@ -19,6 +19,54 @@ export function parseClientMessage(value) {
     return { ok: false, code: "invalid_message" };
   }
   const mutationId = String(message.mutationId || "");
+  if (message.type === "stroke.batch") {
+    if (!MUTATION_PATTERN.test(mutationId)) {
+      return { ok: false, code: "invalid_mutation_id" };
+    }
+    if (
+      !Array.isArray(message.operations) ||
+      message.operations.length === 0 ||
+      message.operations.length > 1024
+    ) {
+      return { ok: false, code: "invalid_batch" };
+    }
+    const encoded = JSON.stringify(message.operations);
+    if (encoded.length > 262144)
+      return { ok: false, code: "payload_too_large" };
+    const operations = [];
+    for (const operation of message.operations) {
+      if (!operation || typeof operation !== "object")
+        return { ok: false, code: "invalid_batch_operation" };
+      const id = String(operation.id || "");
+      if (!ITEM_PATTERN.test(id))
+        return { ok: false, code: "invalid_item_id" };
+      if (operation.type === "stroke.delete") {
+        operations.push({ type: operation.type, id });
+        continue;
+      }
+      if (
+        operation.type !== "stroke.commit" ||
+        !operation.payload ||
+        typeof operation.payload !== "object" ||
+        Array.isArray(operation.payload)
+      ) {
+        return { ok: false, code: "invalid_batch_operation" };
+      }
+      operations.push({ type: operation.type, id, payload: operation.payload });
+    }
+    const sender = ITEM_PATTERN.test(String(message.sender || ""))
+      ? message.sender
+      : null;
+    return {
+      ok: true,
+      message: {
+        type: message.type,
+        mutationId,
+        operations,
+        sender,
+      },
+    };
+  }
   if (message.type === "stroke.commit") {
     if (!MUTATION_PATTERN.test(mutationId)) {
       return { ok: false, code: "invalid_mutation_id" };

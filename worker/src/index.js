@@ -236,7 +236,42 @@ export class BoardRoom extends DurableObject {
     }
   }
 
-  applyMutation(attachment, message) {
+  applyMutation(attachment, message, { record = true } = {}) {
+    if (message.type === "stroke.batch") {
+      const events = [];
+      for (let index = 0; index < message.operations.length; index += 1) {
+        const operation = message.operations[index];
+        const applied = this.applyMutation(
+          attachment,
+          {
+            ...operation,
+            mutationId: `${message.mutationId}_${index}`,
+            sender: message.sender,
+          },
+          { record: false },
+        );
+        if (applied.event) events.push(applied.event);
+      }
+      const sequence = events.at(-1)?.sequence || this.currentSequence();
+      const ack = {
+        type: "mutation.ack",
+        mutationId: message.mutationId,
+        action: message.type,
+        sequence,
+        affected: events.length,
+        status: "committed",
+      };
+      this.recordMutation(attachment, message, ack);
+      return {
+        ack,
+        event: {
+          type: "stroke.batch",
+          mutationId: message.mutationId,
+          sender: message.sender,
+          events,
+        },
+      };
+    }
     if (message.type === "admin.delete_all") {
       if (!attachment.isAdmin) throw new MutationError("admin_required");
       const sequence = this.nextSequence();
@@ -254,7 +289,7 @@ export class BoardRoom extends DurableObject {
         affected: count,
         status: "committed",
       };
-      this.recordMutation(attachment, message, ack);
+      if (record) this.recordMutation(attachment, message, ack);
       return { ack, event: { type: "admin.delete_all", sequence } };
     }
     if (message.type === "stroke.commit") {
@@ -279,7 +314,7 @@ export class BoardRoom extends DurableObject {
           message.id,
         );
         const ack = this.createAck(message, sequence);
-        this.recordMutation(attachment, message, ack);
+        if (record) this.recordMutation(attachment, message, ack);
         return { ack, event: { ...message, sequence } };
       }
       const limit = Number(this.env.BOARD_MAX_ITEMS || 300000);
@@ -307,7 +342,7 @@ export class BoardRoom extends DurableObject {
         throw error;
       }
       const ack = this.createAck(message, sequence);
-      this.recordMutation(attachment, message, ack);
+      if (record) this.recordMutation(attachment, message, ack);
       return { ack, event: { ...message, sequence } };
     }
     const row = [...this.sql.exec("SELECT owner_hash FROM strokes WHERE id = ? AND deleted_at IS NULL", message.id)][0];
@@ -321,13 +356,19 @@ export class BoardRoom extends DurableObject {
     const sequence = this.nextSequence();
     this.sql.exec("UPDATE strokes SET deleted_at = ? WHERE id = ?", deletedAt, message.id);
     const ack = this.createAck(message, sequence);
-    this.recordMutation(attachment, message, ack);
+    if (record) this.recordMutation(attachment, message, ack);
     return { ack, event: { ...message, sequence } };
   }
 
   nextSequence() {
     this.sql.exec("UPDATE board_meta SET value = value + 1 WHERE key = 'sequence'");
     return [...this.sql.exec("SELECT value FROM board_meta WHERE key = 'sequence'")][0].value;
+  }
+
+  currentSequence() {
+    return [...this.sql.exec(
+      "SELECT value FROM board_meta WHERE key = 'sequence'",
+    )][0].value;
   }
 
   isBoardDegraded() {

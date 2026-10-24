@@ -67,6 +67,7 @@ export async function startLocalWorker({
 	publicOrigin,
 	protocol = "http",
 	access = { mode: "bypass" },
+	vars = {},
 }) {
 	const port = await reservePort();
 	const adminSecret = localCredential("admin");
@@ -110,6 +111,9 @@ export async function startLocalWorker({
 			"--var",
 			`ACCESS_JWKS_JSON:${JSON.stringify(access.jwks)}`,
 		);
+	}
+	for (const [key, value] of Object.entries(vars)) {
+		args.push("--var", `${key}:${value}`);
 	}
 	const child = spawn(process.execPath, args, {
 		cwd: workerRoot,

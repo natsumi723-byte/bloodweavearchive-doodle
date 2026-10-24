@@ -105,26 +105,29 @@ test("Cloudflare adapter persists hand batches with authoritative tool metadata"
     socket.flushItem("text_12345678");
 
     assert.equal(sent.length, 1);
-    assert.equal(sent[0].type, "stroke.commit");
-    assert.equal(sent[0].id, "text_12345678");
-    assert.deepEqual(sent[0].payload.mutations, [
+    assert.equal(sent[0].type, "stroke.batch");
+    assert.deepEqual(sent[0].operations, [
       {
-        tool: 7,
-        type: 2,
+        type: "stroke.commit",
         id: "text_12345678",
-        transform: { a: 1, b: 0, c: 0, d: 1, e: 120, f: 80 },
+        payload: {
+          mutations: [
+            {
+              tool: 7,
+              type: 2,
+              id: "text_12345678",
+              transform: { a: 1, b: 0, c: 0, d: 1, e: 120, f: 80 },
+            },
+          ],
+        },
       },
     ]);
-    assert.equal(
-      socket.batchGroups.get("cm-hand-text-123456789").mutationIds.size,
-      1,
-    );
   } finally {
     global.WebSocket = previousWebSocket;
   }
 });
 
-test("Cloudflare adapter accepts a multi-item hand batch only after every ACK", async () => {
+test("Cloudflare adapter sends a multi-item hand move as one atomic frame", async () => {
   const previousWebSocket = global.WebSocket;
   global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
   try {
@@ -152,15 +155,47 @@ test("Cloudflare adapter accepts a multi-item hand batch only after every ACK", 
       ],
     });
 
-    assert.equal(sent.length, 2);
-    assert.notEqual(sent[0].mutationId, sent[1].mutationId);
-    socket.receive({ type: "mutation.ack", mutationId: sent[1].mutationId });
-    assert.equal(accepted.length, 0);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].type, "stroke.batch");
+    assert.equal(sent[0].operations.length, 2);
     socket.receive({ type: "mutation.ack", mutationId: sent[0].mutationId });
     assert.deepEqual(
       accepted.map((value) => value.clientMutationIds),
       [["cm-hand-many"]],
     );
+  } finally {
+    global.WebSocket = previousWebSocket;
+  }
+});
+
+test("Cloudflare adapter encodes hand deletes as authoritative tombstone operations", async () => {
+  const previousWebSocket = global.WebSocket;
+  global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
+  try {
+    const { CloudflareSocket } = await import(
+      "../client-data/js/cloudflare_socket_adapter.js"
+    );
+    const socket = new CloudflareSocket("https://example.invalid", "board");
+    /** @type {any[]} */
+    const sent = [];
+    socket.ws = /** @type {any} */ ({
+      readyState: 1,
+      send: (/** @type {string} */ value) => sent.push(JSON.parse(value)),
+    });
+    socket.emit("broadcast", {
+      tool: 7,
+      clientMutationId: "cm-hand-delete",
+      _children: [
+        { type: 2, id: "text-a", transform: { e: 10, f: 20 } },
+        { type: 3, id: "text-b" },
+      ],
+    });
+
+    assert.deepEqual(
+      sent[0].operations.map((/** @type {any} */ operation) => operation.type),
+      ["stroke.commit", "stroke.delete"],
+    );
+    assert.equal("payload" in sent[0].operations[1], false);
   } finally {
     global.WebSocket = previousWebSocket;
   }
@@ -193,16 +228,16 @@ test("Cloudflare adapter flushes a pending create before its hand transform", as
       _children: [{ type: 2, id: "new-text", transform: { e: 50, f: 60 } }],
     });
 
-    assert.deepEqual(
-      sent.map((frame) => frame.payload.mutations[0].type),
-      [1, 2],
-    );
+    assert.equal(sent[0].type, "stroke.commit");
+    assert.equal(sent[0].payload.mutations[0].type, 1);
+    assert.equal(sent[1].type, "stroke.batch");
+    assert.equal(sent[1].operations[0].payload.mutations[0].type, 2);
   } finally {
     global.WebSocket = previousWebSocket;
   }
 });
 
-test("Cloudflare adapter rejects a hand batch when a later child fails", async () => {
+test("Cloudflare adapter rejects an atomic hand batch without premature success", async () => {
   const previousWebSocket = global.WebSocket;
   global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
   try {
@@ -234,11 +269,10 @@ test("Cloudflare adapter rejects a hand batch when a later child fails", async (
         { type: 2, id: "text-b", transform: { e: 30, f: 40 } },
       ],
     });
-    socket.receive({ type: "mutation.ack", mutationId: sent[0].mutationId });
     socket.receive({
       type: "error",
       code: "storage_failure",
-      mutationId: sent[1].mutationId,
+      mutationId: sent[0].mutationId,
     });
 
     assert.equal(accepted.length, 0);
@@ -250,7 +284,7 @@ test("Cloudflare adapter rejects a hand batch when a later child fails", async (
   }
 });
 
-test("Cloudflare adapter reuses every hand child mutation id after a lost ACK", async () => {
+test("Cloudflare adapter reuses the atomic hand mutation id after a lost ACK", async () => {
   const previousWebSocket = global.WebSocket;
   global.WebSocket = /** @type {any} */ ({ OPEN: 1 });
   try {
@@ -283,12 +317,7 @@ test("Cloudflare adapter reuses every hand child mutation id after a lost ACK", 
       retry.map((frame) => frame.mutationId),
       first.map((frame) => frame.mutationId),
     );
-    assert.equal(
-      batch._children.every(
-        (/** @type {any} */ child) => child.cloudflareMutationId,
-      ),
-      true,
-    );
+    assert.equal(Boolean(batch.cloudflareMutationId), true);
   } finally {
     global.WebSocket = previousWebSocket;
   }
@@ -309,9 +338,14 @@ test("Cloudflare hand mutations remain routable for peers and snapshot refresh",
     transform: { a: 1, b: 0, c: 0, d: 1, e: 75, f: 90 },
   };
   socket.receive({
-    type: "stroke.commit",
-    sender: "peer-a",
-    payload: { mutations: [mutation] },
+    type: "stroke.batch",
+    events: [
+      {
+        type: "stroke.commit",
+        sender: "peer-a",
+        payload: { mutations: [mutation] },
+      },
+    ],
   });
   socket.receive({
     type: "snapshot",

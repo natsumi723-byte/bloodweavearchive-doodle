@@ -163,7 +163,6 @@ export class CloudflareSocket {
     this[listenersSymbol] = new Map();
     this.pending = new Map();
     this.inflight = new Map();
-    this.batchGroups = new Map();
     this.flushTimers = new Map();
     this.sequence = 0;
     this.lastDeleteMutation = null;
@@ -287,22 +286,7 @@ export class CloudflareSocket {
   }
 
   sendDurableBatch(message) {
-    const clientMutationId = message.clientMutationId || null;
-    const groupId =
-      clientMutationId ||
-      message.cloudflareBatchId ||
-      `batch_${crypto.randomUUID().replaceAll("-", "")}`;
-    message.cloudflareBatchId = groupId;
-    let group = this.batchGroups.get(groupId);
-    if (!group) {
-      group = {
-        clientMutationId,
-        mutationIds: new Set(),
-        acknowledged: new Set(),
-        rejected: false,
-      };
-      this.batchGroups.set(groupId, group);
-    }
+    const operations = [];
     for (const child of message._children) {
       if (child.tool === undefined && message.tool !== undefined)
         child.tool = message.tool;
@@ -311,25 +295,32 @@ export class CloudflareSocket {
       // Preserve websocket ordering when a newly-created item is moved before
       // its normal debounce window has flushed.
       this.flushItem(itemId);
-      const mutationId = this.stableMutationId([child]);
-      group.mutationIds.add(mutationId);
       const {
         clientMutationId: _clientMutationId,
         cloudflareMutationId: _cloudflareMutationId,
         ...authoritativeMutation
       } = child;
-      this.sendDurableMutation(
-        {
-          type: "stroke.commit",
-          mutationId,
-          id: itemId,
-          sender: this.id,
-          payload: { mutations: [authoritativeMutation] },
-        },
-        [],
-        groupId,
+      operations.push(
+        Number(child.type) === 3
+          ? { type: "stroke.delete", id: itemId }
+          : {
+              type: "stroke.commit",
+              id: itemId,
+              payload: { mutations: [authoritativeMutation] },
+            },
       );
     }
+    if (operations.length === 0) return;
+    const mutationId = this.stableMutationId([message]);
+    this.sendDurableMutation(
+      {
+        type: "stroke.batch",
+        mutationId,
+        sender: this.id,
+        operations,
+      },
+      [message.clientMutationId].filter(Boolean),
+    );
   }
 
   flushItem(itemId) {
@@ -365,16 +356,12 @@ export class CloudflareSocket {
     return mutationId;
   }
 
-  sendDurableMutation(frame, clientMutationIds, batchGroupId = null) {
+  sendDurableMutation(frame, clientMutationIds) {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       this.dispatch("mutation_retry");
       return false;
     }
-    this.inflight.set(frame.mutationId, {
-      frame,
-      clientMutationIds,
-      batchGroupId,
-    });
+    this.inflight.set(frame.mutationId, { frame, clientMutationIds });
     this.ws.send(JSON.stringify(frame));
     return true;
   }
@@ -404,20 +391,6 @@ export class CloudflareSocket {
       const operation = this.inflight.get(message.mutationId);
       if (!operation) return;
       this.inflight.delete(message.mutationId);
-      if (operation.batchGroupId) {
-        const group = this.batchGroups.get(operation.batchGroupId);
-        if (!group || group.rejected) return;
-        group.acknowledged.add(message.mutationId);
-        if (group.acknowledged.size < group.mutationIds.size) return;
-        this.batchGroups.delete(operation.batchGroupId);
-        this.dispatch("mutation_accepted", {
-          mutationId: operation.batchGroupId,
-          clientMutationIds: [group.clientMutationId].filter(Boolean),
-          sequence: message.sequence,
-          duplicate: message.duplicate === true,
-        });
-        return;
-      }
       this.dispatch("mutation_accepted", {
         mutationId: message.mutationId,
         clientMutationIds: operation.clientMutationIds,
@@ -434,6 +407,10 @@ export class CloudflareSocket {
           mutation: { ...mutation, socket: message.sender },
         });
       }
+      return;
+    }
+    if (message.type === "stroke.batch") {
+      for (const event of message.events || []) this.receive(event);
       return;
     }
     if (message.type === "stroke.delete") {
@@ -495,18 +472,6 @@ export class CloudflareSocket {
           canBan: false,
           canReport: false,
         });
-      }
-      if (operation?.batchGroupId) {
-        const group = this.batchGroups.get(operation.batchGroupId);
-        if (group && !group.rejected) {
-          group.rejected = true;
-          this.batchGroups.delete(operation.batchGroupId);
-          this.dispatch("mutation_rejected", {
-            reason: message.code,
-            clientMutationIds: [group.clientMutationId].filter(Boolean),
-          });
-        }
-        return;
       }
       this.dispatch("mutation_rejected", {
         reason: message.code,

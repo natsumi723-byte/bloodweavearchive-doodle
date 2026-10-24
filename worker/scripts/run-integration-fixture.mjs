@@ -13,6 +13,7 @@ const origin = `http://127.0.0.1:${originPort}`;
 const worker = await startLocalWorker({
 	adminOrigin: origin,
 	publicOrigin: origin,
+	vars: { BOARD_MAX_ITEMS: 3 },
 });
 const board = `qa-public-fixture-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
