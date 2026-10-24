@@ -587,3 +587,66 @@ test("Cloudflare adapter exposes and sends delete-all only for an unlocked admin
     globalAny.localStorage = previousLocalStorage;
   }
 });
+
+test("Cloudflare adapter keeps one probe in flight and surfaces terminal capacity", async () => {
+  const globalAny = /** @type {any} */ (global);
+  const previous = {
+    WebSocket: global.WebSocket,
+    location: global.location,
+    window: global.window,
+    document: global.document,
+    localStorage: global.localStorage,
+    fetch: global.fetch,
+  };
+  let probes = 0;
+  let sockets = 0;
+  globalAny.location = {
+    pathname: "/boards/archive",
+    protocol: "https:",
+    host: "doodle.example",
+    origin: "https://doodle.example",
+  };
+  globalAny.window = { addEventListener() {} };
+  globalAny.document = { addEventListener() {}, visibilityState: "visible" };
+  globalAny.localStorage = { getItem: () => "A".repeat(43), setItem() {} };
+  globalAny.fetch = async () => {
+    probes++;
+    await Promise.resolve();
+    return new Response(JSON.stringify({ error: "capacity_exhausted" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  globalAny.WebSocket = class {
+    constructor() {
+      sockets++;
+    }
+  };
+  try {
+    const { CloudflareSocket } = await import(
+      `../client-data/js/cloudflare_socket_adapter.js?capacity=${Date.now()}`
+    );
+    const socket = new CloudflareSocket("wss://api.example", "archive");
+    /** @type {Array<{data?: {reason?: string, terminal?: boolean}}>} */
+    const errors = [];
+    socket.on(
+      "connect_error",
+      /** @param {{data?: {reason?: string, terminal?: boolean}}} error */ (
+        error,
+      ) => errors.push(error),
+    );
+    socket.connect();
+    socket.connect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(probes, 1);
+    assert.equal(sockets, 0);
+    assert.equal(errors.length, 1);
+    assert.deepEqual(errors[0]?.data, {
+      reason: "capacity_exhausted",
+      terminal: true,
+    });
+    assert.equal(socket.connecting, false);
+  } finally {
+    Object.assign(globalAny, previous);
+  }
+});

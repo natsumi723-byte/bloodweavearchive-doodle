@@ -399,6 +399,7 @@ export type ClientSocketIncomingEventMap = {
     message?: string;
     data?: {
       reason?: string;
+      terminal?: boolean;
       latestSeq?: number;
       minReplayableSeq?: number;
     };
@@ -508,6 +509,7 @@ export type BoardStatusView = {
   state: "paused" | "hidden" | "reconnecting" | "buffering";
   title: string;
   detail: string;
+  retryable?: boolean;
 };
 
 export type ExplicitBoardStatus = BoardStatusView | null;

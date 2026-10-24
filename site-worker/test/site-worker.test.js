@@ -6,6 +6,7 @@ import worker, {
   boardPath,
   canonicalBoardRequest,
   isAdminApiRequest,
+  isBoardApiRequest,
   preferredLanguage,
 } from "../src/index.js";
 
@@ -129,5 +130,28 @@ test("only the Access-protected admin host proxies administrator API traffic", a
     env,
   );
   assert.equal(await publicResponse.text(), "asset");
+  assert.equal(forwarded.length, 1);
+});
+
+test("same-origin public capacity probes are proxied to the API binding", async () => {
+  const forwarded = [];
+  const env = {
+    BOARD_ID: "bwa-unfinished-archive",
+    PUBLIC_HOST: "doodle.example",
+    ADMIN_HOST: "admin-doodle.example",
+    API: {
+      fetch(request) {
+        forwarded.push(request);
+        return new Response("capacity");
+      },
+    },
+    ASSETS: { fetch: () => new Response("asset") },
+  };
+  const url = new URL(
+    "https://doodle.example/api/boards/archive/socket?capacityProbe=1",
+  );
+  assert.equal(isBoardApiRequest(url, url.hostname, env), true);
+  const response = await worker.fetch(new Request(url), env);
+  assert.equal(await response.text(), "capacity");
   assert.equal(forwarded.length, 1);
 });

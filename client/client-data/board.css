@@ -579,6 +579,14 @@ select {
     transform 0.16s ease;
 }
 
+.board-status-retryable {
+  pointer-events: auto;
+}
+
+#boardStatusRetry {
+  margin-top: 6px;
+}
+
 .board-status-card {
   display: flex;
   align-items: center;

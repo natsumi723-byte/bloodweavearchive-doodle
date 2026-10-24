@@ -15,8 +15,19 @@ import { createCloudflareIo } from "./cloudflare_socket_adapter.js";
 /** @typedef {{banDurationMs: number, moderationRule?: string, source: import("../../types/app-runtime").ModerationDisconnectSource, acknowledged: boolean, disconnected: boolean}} PendingModerationDisconnect */
 const ACCESS_REFRESH_GRACE_MS = 50;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
+const RECONNECT_BASE_DELAY_MS = 500;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 /** @type {Promise<typeof io> | null} */
 let socketIoReady = null;
+
+/** @param {number} attempt */
+export function reconnectDelayMs(attempt) {
+  const exponent = Math.max(0, Math.min(16, Math.floor(attempt)));
+  return Math.min(
+    RECONNECT_MAX_DELAY_MS,
+    RECONNECT_BASE_DELAY_MS * 2 ** exponent,
+  );
+}
 
 /**
  * @returns {Promise<typeof io>}
@@ -182,12 +193,53 @@ export class ConnectionModule {
     this.generation = 0;
     this.starting = /** @type {Promise<void> | null} */ (null);
     this.reconnectTimerId = 0;
+    this.reconnectAttempt = 0;
+    this.terminalCapacity = false;
     this.state = /** @type {BoardConnectionState} */ ("idle");
     this.hasConnectedOnce = false;
     this.socketIOExtraHeaders = /** @type {SocketHeaders | null} */ (null);
     this.pendingModerationDisconnect =
       /** @type {PendingModerationDisconnect | null} */ (null);
     this.accessRefreshTimerId = /** @type {number | null} */ (null);
+    window.addEventListener("online", () => this.resumeReconnect("online"));
+    window.addEventListener("offline", () => this.pauseReconnect("offline"));
+    document.addEventListener?.("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        this.pauseReconnect("hidden");
+      } else {
+        this.resumeReconnect("visible");
+      }
+    });
+  }
+
+  canReconnectNow() {
+    const isOnline =
+      typeof navigator === "undefined" || navigator.onLine !== false;
+    return isOnline && document.visibilityState !== "hidden";
+  }
+
+  /** @param {string} reason */
+  pauseReconnect(reason) {
+    if (!this.reconnectTimerId) return;
+    window.clearTimeout(this.reconnectTimerId);
+    this.reconnectTimerId = 0;
+    this.logBoardEvent("log", "socket.reconnect_paused", { reason });
+  }
+
+  /** @param {string} reason */
+  resumeReconnect(reason) {
+    if (this.terminalCapacity || this.state === "connected") return;
+    if (!this.canReconnectNow()) return;
+    this.logBoardEvent("log", "socket.reconnect_resumed", { reason });
+    this.scheduleSocketReconnect(0);
+  }
+
+  manualRetry() {
+    if (!this.terminalCapacity) return;
+    this.terminalCapacity = false;
+    this.reconnectAttempt = 0;
+    this.getTools().status.clearBoardStatus();
+    this.scheduleSocketReconnect(0);
   }
 
   cancelAccessRefresh() {
@@ -215,12 +267,17 @@ export class ConnectionModule {
   }
 
   /** @param {number} [delayMs] */
-  scheduleSocketReconnect(delayMs = 250) {
-    window.clearTimeout(this.reconnectTimerId);
-    this.reconnectTimerId = window.setTimeout(
-      () => this.start(),
-      Math.max(0, delayMs),
-    );
+  scheduleSocketReconnect(delayMs) {
+    if (this.terminalCapacity || this.reconnectTimerId) return;
+    if (!this.canReconnectNow()) return;
+    const resolvedDelay =
+      delayMs === undefined
+        ? reconnectDelayMs(this.reconnectAttempt++)
+        : Math.max(0, delayMs);
+    this.reconnectTimerId = window.setTimeout(() => {
+      this.reconnectTimerId = 0;
+      this.start();
+    }, resolvedDelay);
   }
 
   /** @param {PendingModerationDisconnect} notice */
@@ -232,8 +289,11 @@ export class ConnectionModule {
   }
 
   start() {
+    if (this.terminalCapacity || !this.canReconnectNow())
+      return Promise.resolve();
     if (this.starting) return this.starting;
     window.clearTimeout(this.reconnectTimerId);
+    this.reconnectTimerId = 0;
     const Tools = this.getTools();
     if (this.socket)
       Tools.replay.beginAuthoritativeResync({
@@ -306,6 +366,7 @@ export class ConnectionModule {
         if (generation !== this.generation) return;
         const hadConnectedBefore = Tools.connection.hasConnectedOnce;
         Tools.connection.state = "connected";
+        Tools.connection.reconnectAttempt = 0;
         this.logBoardEvent(
           "log",
           hadConnectedBefore ? "socket.reconnected" : "socket.connected",
@@ -380,6 +441,17 @@ export class ConnectionModule {
         });
         Tools.connection.state = "disconnected";
         Tools.status.syncWriteStatusIndicator();
+        if (reason === "capacity_exhausted" || data?.terminal === true) {
+          this.terminalCapacity = true;
+          window.clearTimeout(this.reconnectTimerId);
+          this.reconnectTimerId = 0;
+          if (socket === Tools.connection.socket) {
+            Tools.connection.socket = null;
+            closeSocket(socket);
+          }
+          Tools.status.showCapacityNotice();
+          return;
+        }
         if (reason === "baseline_not_replayable") {
           this.logBoardEvent("warn", "replay.baseline_not_replayable", {
             authoritativeSeq: Tools.replay.authoritativeSeq,

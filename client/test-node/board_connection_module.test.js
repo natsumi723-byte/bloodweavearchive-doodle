@@ -302,9 +302,63 @@ test("connection and replay discard superseded asynchronous work", async (t) => 
   t.mock.method(Tools.replay, "refreshAuthoritativeBaseline", async () => {});
   Tools.connection.scheduleSocketReconnect();
   Tools.connection.scheduleSocketReconnect();
-  browser.advanceTime(250);
+  browser.advanceTime(500);
   await Tools.connection.starting;
   assert.equal(connect.mock.callCount(), 2);
+});
+
+test("reconnect backoff is bounded, single-flight, pausable, and manually recoverable", async (t) => {
+  const { ConnectionModule, reconnectDelayMs } = await import(
+    "../client-data/js/board_connection_module.js"
+  );
+  const browser = installBrowserHarness({
+    document: {
+      visibilityState: "visible",
+      addEventListener() {},
+      getElementById() {
+        return null;
+      },
+    },
+  });
+  t.after(() => browser.restore());
+  assert.deepEqual(
+    [0, 1, 2, 3, 10].map(reconnectDelayMs),
+    [500, 1000, 2000, 4000, 30000],
+  );
+
+  let starts = 0;
+  let clears = 0;
+  const Tools = /** @type {any} */ ({
+    status: { clearBoardStatus: () => clears++ },
+  });
+  const connection = new ConnectionModule(
+    () => Tools,
+    () => {},
+  );
+  connection.start = async () => {
+    starts++;
+  };
+  connection.scheduleSocketReconnect();
+  connection.scheduleSocketReconnect();
+  browser.advanceTime(499);
+  assert.equal(starts, 0);
+  browser.advanceTime(1);
+  assert.equal(starts, 1);
+
+  connection.scheduleSocketReconnect();
+  connection.pauseReconnect("hidden");
+  browser.advanceTime(1000);
+  assert.equal(starts, 1);
+
+  connection.terminalCapacity = true;
+  connection.scheduleSocketReconnect(0);
+  browser.flushUntilIdle();
+  assert.equal(starts, 1);
+  connection.manualRetry();
+  browser.flushUntilIdle();
+  assert.equal(starts, 2);
+  assert.equal(clears, 1);
+  assert.equal(connection.terminalCapacity, false);
 });
 
 test("drawing does not delay broadcast sequence or acknowledgements", async (t) => {

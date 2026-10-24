@@ -31,6 +31,13 @@ function isAdminApiRequest(url, host, env) {
   );
 }
 
+function isBoardApiRequest(url, host, env) {
+  return (
+    (host === env.PUBLIC_HOST && url.pathname.startsWith("/api/boards/")) ||
+    isAdminApiRequest(url, host, env)
+  );
+}
+
 async function serveBoard(request, env, kind) {
   const url = new URL(request.url);
   const language = preferredLanguage(url, request);
@@ -73,7 +80,7 @@ export default {
     if (host !== expectedHost)
       return new Response("Not found", { status: 404 });
 
-    if (isAdminApiRequest(url, host, env)) {
+    if (isBoardApiRequest(url, host, env)) {
       return env.API.fetch(request);
     }
 
@@ -105,5 +112,6 @@ export {
   boardPath,
   canonicalBoardRequest,
   isAdminApiRequest,
+  isBoardApiRequest,
   preferredLanguage,
 };

@@ -44,6 +44,12 @@ export class BoardRoom extends DurableObject {
       deleted_at INTEGER
     )`);
     this.sql.exec("CREATE INDEX IF NOT EXISTS strokes_sequence ON strokes(sequence)");
+    this.sql.exec(
+      "CREATE INDEX IF NOT EXISTS strokes_active_sequence ON strokes(sequence) WHERE deleted_at IS NULL",
+    );
+    this.sql.exec(
+      "CREATE INDEX IF NOT EXISTS strokes_tombstone_age ON strokes(deleted_at) WHERE deleted_at IS NOT NULL",
+    );
     this.sql.exec(`CREATE TABLE IF NOT EXISTS mutation_log (
       mutation_id TEXT PRIMARY KEY,
       owner_hash TEXT NOT NULL,
@@ -52,6 +58,9 @@ export class BoardRoom extends DurableObject {
       response TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
+    this.sql.exec(
+      "CREATE INDEX IF NOT EXISTS mutation_log_created_at ON mutation_log(created_at)",
+    );
     this.sql.exec(`CREATE TABLE IF NOT EXISTS board_meta (
       key TEXT PRIMARY KEY,
       value INTEGER NOT NULL
@@ -64,6 +73,12 @@ export class BoardRoom extends DurableObject {
     const url = new URL(request.url);
     const boardId = normalizeBoardId(url.searchParams.get("board"));
     if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+    if (
+      request.method === "GET" &&
+      url.searchParams.get("capacityProbe") === "1"
+    ) {
+      return jsonResponse({ ok: true, capacity: "available" });
+    }
     if (request.headers.get("Upgrade") !== "websocket") {
       return jsonResponse({ error: "websocket_required" }, 426);
     }
@@ -503,9 +518,11 @@ export default {
     if (!originAllowed(request, env, route.admin)) {
       return jsonResponse({ error: "origin_not_allowed" }, 403);
     }
+    const capacityProbe =
+      request.method === "GET" && url.searchParams.get("capacityProbe") === "1";
     if (route.admin) {
       if (!await hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
-      if (!hasAdminProtocol(request)) return jsonResponse({ error: "admin_secret_required" }, 401);
+      if (!capacityProbe && !hasAdminProtocol(request)) return jsonResponse({ error: "admin_secret_required" }, 401);
     } else if (hasAdminProtocol(request)) {
       return jsonResponse({ error: "admin_route_required" }, 403);
     }
@@ -515,7 +532,19 @@ export default {
     const stub = env.BOARDS.get(objectId);
     const forwarded = new URL(request.url);
     forwarded.searchParams.set("board", boardId);
-    return stub.fetch(new Request(forwarded, request));
+    try {
+      return await stub.fetch(new Request(forwarded, request));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/allowed rows read|quota|capacity/i.test(message)) {
+        return jsonResponse(
+          { error: "capacity_exhausted", retryable: true },
+          503,
+          { "Retry-After": "3600" },
+        );
+      }
+      throw error;
+    }
   },
 
   async scheduled(controller, env, ctx) {

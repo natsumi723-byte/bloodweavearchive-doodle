@@ -5,6 +5,7 @@ function getBoardStatusElements() {
     indicator: document.getElementById("boardStatusIndicator"),
     title: document.getElementById("boardStatusTitle"),
     notice: document.getElementById("boardStatusNotice"),
+    retry: document.getElementById("boardStatusRetry"),
   };
 }
 
@@ -63,6 +64,17 @@ export class StatusModule {
   hideRateLimitNotice() {
     this.clearRateLimitNoticeTimer();
     this.clearBoardStatus();
+  }
+
+  showCapacityNotice() {
+    const Tools = this.getTools();
+    this.showBoardStatus({
+      hidden: false,
+      state: "paused",
+      title: Tools.i18n.t("capacity_unavailable_title"),
+      detail: Tools.i18n.t("capacity_unavailable_detail"),
+      retryable: true,
+    });
   }
 
   /** @param {string} reason */
@@ -197,7 +209,7 @@ export class StatusModule {
       const waiters = Tools.writes.writeReadyWaiters.splice(0);
       waiters.forEach((resolve) => resolve());
     }
-    const { indicator, title, notice } = getBoardStatusElements();
+    const { indicator, title, notice, retry } = getBoardStatusElements();
     if (!indicator || !title || !notice) return;
 
     const view = this.getBoardStatusView();
@@ -215,6 +227,20 @@ export class StatusModule {
     title.textContent = view.title;
     notice.textContent = view.detail;
     notice.classList.toggle("board-status-detail-hidden", !view.detail);
+    indicator.classList.toggle(
+      "board-status-retryable",
+      view.retryable === true,
+    );
+    if (
+      retry &&
+      typeof HTMLButtonElement !== "undefined" &&
+      retry instanceof HTMLButtonElement
+    ) {
+      retry.hidden = view.retryable !== true;
+      retry.textContent = Tools.i18n.t("capacity_retry");
+      retry.onclick =
+        view.retryable === true ? () => Tools.connection.manualRetry() : null;
+    }
     indicator.classList.add(`board-status-${view.state}`);
   }
 }

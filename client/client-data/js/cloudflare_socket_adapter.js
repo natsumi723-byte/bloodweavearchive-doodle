@@ -167,6 +167,8 @@ export class CloudflareSocket {
     this.sequence = 0;
     this.lastDeleteMutation = null;
     this.ws = null;
+    this.connecting = false;
+    this.connectGeneration = 0;
   }
 
   on(name, callback) {
@@ -182,16 +184,22 @@ export class CloudflareSocket {
   }
 
   connect() {
+    if (this.connected || this.connecting) return;
+    this.connecting = true;
+    const generation = ++this.connectGeneration;
     const requiresAdmin = isAdminPath(location.pathname);
     const elevated = adminToken();
     if (elevated instanceof Promise) {
-      elevated.then((token) => this.openConnection(requiresAdmin, token));
+      elevated.then((token) => {
+        if (generation !== this.connectGeneration) return;
+        this.openConnection(requiresAdmin, token, generation);
+      });
       return;
     }
-    this.openConnection(requiresAdmin, elevated);
+    this.openConnection(requiresAdmin, elevated, generation);
   }
 
-  openConnection(requiresAdmin, elevated) {
+  async openConnection(requiresAdmin, elevated, generation) {
     const routePrefix = requiresAdmin ? "/api/admin/boards" : "/api/boards";
     const useAdminProxy = requiresAdmin && location.protocol === "https:";
     const socketBaseUrl = useAdminProxy
@@ -201,15 +209,45 @@ export class CloudflareSocket {
     const protocols = ["bwa-v2", `owner.${boardToken(this.boardName)}`];
     protocols.push(`socket.${this.id}`);
     if (requiresAdmin && !elevated) {
+      this.connecting = false;
       leaveCancelledAdminEntry(this.boardName);
       return;
     }
     if (elevated) protocols.push(`admin.${elevated}`);
+    if (location.origin && typeof fetch === "function") {
+      const probeUrl = new URL(
+        `${routePrefix}/${encodeURIComponent(this.boardName)}/socket`,
+        location.origin,
+      );
+      probeUrl.searchParams.set("capacityProbe", "1");
+      try {
+        const probe = await fetch(probeUrl, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (generation !== this.connectGeneration) return;
+        if (probe.status === 503) {
+          const payload = await probe.json().catch(() => ({}));
+          if (payload?.error === "capacity_exhausted") {
+            this.connecting = false;
+            this.dispatch("connect_error", {
+              message: "capacity_exhausted",
+              data: { reason: "capacity_exhausted", terminal: true },
+            });
+            return;
+          }
+        }
+      } catch {
+        // A failed probe must not replace the existing WebSocket failure path.
+      }
+    }
+    if (generation !== this.connectGeneration) return;
     this.ws = new WebSocket(url, protocols);
     if (elevated) {
       installAdminAutoLock(() => this.ws?.close(1000, "admin window locked"));
     }
     this.ws.addEventListener("open", () => {
+      this.connecting = false;
       this.connected = true;
       this.dispatch("connect");
       this.dispatch("boardstate", {
@@ -224,18 +262,22 @@ export class CloudflareSocket {
       this.receive(JSON.parse(event.data)),
     );
     this.ws.addEventListener("close", () => {
+      this.connecting = false;
       this.connected = false;
       if (this.inflight.size > 0 || this.pending.size > 0) {
         this.dispatch("mutation_retry");
       }
       this.dispatch("disconnect", "transport close");
     });
-    this.ws.addEventListener("error", () =>
-      this.dispatch("connect_error", new Error("cloudflare_websocket_error")),
-    );
+    this.ws.addEventListener("error", () => {
+      this.connecting = false;
+      this.dispatch("connect_error", new Error("cloudflare_websocket_error"));
+    });
   }
 
   disconnect() {
+    this.connectGeneration += 1;
+    this.connecting = false;
     this.ws?.close(1000, "client disconnect");
   }
 
