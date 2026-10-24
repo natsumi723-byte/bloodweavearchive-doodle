@@ -10,7 +10,9 @@
     "test": "node --test test/*.test.js",
     "check:backup-integration": "node scripts/backup-integration-check.mjs",
     "check:lost-ack-integration": "node scripts/lost-ack-integration-check.mjs",
-    "check:storage-degradation": "node scripts/storage-degradation-integration-check.mjs"
+    "check:storage-degradation": "node scripts/storage-degradation-integration-check.mjs",
+    "deploy:dry-run": "node scripts/release-wrangler.mjs --dry-run",
+    "deploy": "node scripts/release-wrangler.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.45.0",

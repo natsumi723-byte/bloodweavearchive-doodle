@@ -17,23 +17,48 @@ function connect(token, admin = null) {
     const socket = new WebSocket(target, protocols, {
       origin: process.env.INTEGRATION_ORIGIN || "http://127.0.0.1:5043",
     });
+    inboxFor(socket);
     socket.addEventListener("open", () => resolve(socket), { once: true });
     socket.addEventListener("error", reject, { once: true });
   });
 }
 
-function nextMessage(socket) {
+const inboxes = new WeakMap();
+
+function inboxFor(socket) {
+  let inbox = inboxes.get(socket);
+  if (inbox) return inbox;
+  inbox = { messages: [], waiters: [] };
+  inboxes.set(socket, inbox);
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(event.data);
+    const waiterIndex = inbox.waiters.findIndex((waiter) => waiter.predicate(message));
+    if (waiterIndex === -1) {
+      inbox.messages.push(message);
+      return;
+    }
+    const [waiter] = inbox.waiters.splice(waiterIndex, 1);
+    clearTimeout(waiter.timer);
+    waiter.resolve(message);
+  });
+  return inbox;
+}
+
+function nextMessage(socket, predicate = () => true) {
   return new Promise((resolve, reject) => {
+    const inbox = inboxFor(socket);
+    const messageIndex = inbox.messages.findIndex(predicate);
+    if (messageIndex !== -1) {
+      resolve(inbox.messages.splice(messageIndex, 1)[0]);
+      return;
+    }
     const timer = setTimeout(() => reject(new Error("message timeout")), 3000);
-    socket.addEventListener("message", (event) => {
-      clearTimeout(timer);
-      resolve(JSON.parse(event.data));
-    }, { once: true });
+    inbox.waiters.push({ predicate, resolve, reject, timer });
   });
 }
 
 const a = await connect(tokenA);
-const firstSnapshot = await nextMessage(a);
+const firstSnapshot = await nextMessage(a, (message) => message.type === "snapshot");
 assert.equal(firstSnapshot.type, "snapshot");
 const id = `stroke_${crypto.randomUUID().replaceAll("-", "")}`;
 const firstMutation = {
@@ -42,14 +67,20 @@ const firstMutation = {
   id,
   payload: { tool: "pencil", color: "#7f293b", points: [[1, 2], [3, 4]] },
 };
-const firstAckPromise = nextMessage(a);
+const firstAckPromise = nextMessage(
+  a,
+  (message) => message.type === "mutation.ack" && message.mutationId === firstMutation.mutationId,
+);
 a.send(JSON.stringify(firstMutation));
 const firstAck = await firstAckPromise;
 assert.equal(firstAck.type, "mutation.ack");
 assert.equal(firstAck.status, "committed");
 assert.equal(firstAck.mutationId, firstMutation.mutationId);
 
-const duplicateAckPromise = nextMessage(a);
+const duplicateAckPromise = nextMessage(
+  a,
+  (message) => message.type === "mutation.ack" && message.mutationId === firstMutation.mutationId,
+);
 a.send(JSON.stringify(firstMutation));
 const duplicateAck = await duplicateAckPromise;
 assert.equal(duplicateAck.mutationId, firstMutation.mutationId);
@@ -58,13 +89,13 @@ assert.equal(duplicateAck.duplicate, true);
 
 await new Promise((resolve) => setTimeout(resolve, 100));
 const b = await connect(tokenB);
-const bSnapshot = await nextMessage(b);
+const bSnapshot = await nextMessage(b, (message) => message.type === "snapshot");
 assert.equal(bSnapshot.items.some((item) => item.id === id), true);
 
 b.send(JSON.stringify({ type: "stroke.delete", mutationId: `mutation_${crypto.randomUUID().replaceAll("-", "")}`, id }));
-assert.equal((await nextMessage(b)).code, "not_item_owner");
+assert.equal((await nextMessage(b, (message) => message.type === "error")).code, "not_item_owner");
 
-const deletion = nextMessage(b);
+const deletion = nextMessage(b, (message) => message.type === "stroke.delete" && message.id === id);
 a.send(JSON.stringify({ type: "stroke.delete", mutationId: `mutation_${crypto.randomUUID().replaceAll("-", "")}`, id }));
 const deletionMessage = await deletion;
 assert.equal(deletionMessage.type, "stroke.delete");
@@ -81,7 +112,7 @@ a.send(JSON.stringify({
 await new Promise((resolve) => setTimeout(resolve, 100));
 const admin = await connect("C".repeat(43), adminSecret);
 await new Promise((resolve) => setTimeout(resolve, 100));
-const adminDeletion = nextMessage(b);
+const adminDeletion = nextMessage(b, (message) => message.type === "stroke.delete" && message.id === secondId);
 admin.send(JSON.stringify({
   type: "stroke.delete",
   mutationId: `mutation_${crypto.randomUUID().replaceAll("-", "")}`,
@@ -97,7 +128,7 @@ a.send(JSON.stringify({
   payload: { mutations: [{ type: 1, id: thirdId, tool: 0 }] },
 }));
 await new Promise((resolve) => setTimeout(resolve, 100));
-const adminMove = nextMessage(b);
+const adminMove = nextMessage(b, (message) => message.type === "stroke.commit" && message.id === thirdId);
 admin.send(JSON.stringify({
   type: "stroke.commit",
   mutationId: `mutation_${crypto.randomUUID().replaceAll("-", "")}`,

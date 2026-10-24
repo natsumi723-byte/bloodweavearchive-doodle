@@ -20,6 +20,19 @@ test("Cloudflare admin capability is exposed only on the dedicated admin path", 
   );
 });
 
+test("administrator data controls derive HTTPS from the WebSocket backend", async () => {
+  const { adminDataEndpoint } = await import("../client-data/js/bwa_chrome.js");
+  assert.equal(
+    adminDataEndpoint("wss://api-doodle.bloodweavearchive.com", "archive one"),
+    "https://api-doodle.bloodweavearchive.com/api/admin/boards/archive%20one",
+  );
+  assert.equal(
+    adminDataEndpoint("ws://127.0.0.1:5042/", "archive"),
+    "http://127.0.0.1:5042/api/admin/boards/archive",
+  );
+  assert.throws(() => adminDataEndpoint("ftp://example.com", "archive"));
+});
+
 test("administrator connection locks while hidden and reloads when visible", async () => {
   const { installAdminAutoLock } = await import(
     "../client-data/js/cloudflare_socket_adapter.js"

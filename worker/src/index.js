@@ -1,10 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { jsonResponse, normalizeBoardId, parseClientMessage, validOwnerToken } from "./protocol.js";
 import { ownerHash, verifySecret } from "./ownership.js";
-import { adminDataRoute, hasAccessAssertion, hasAdminProtocol, originAllowed, socketRoute } from "./security.js";
-import { createBackupBundle, createGoogleDriveClient, runBackupRotation, validateBackupBundle } from "./backup.js";
+import { adminDataRoute, adminPreflight, hasAccessAssertion, hasAdminProtocol, originAllowed, socketRoute, withAdminCors } from "./security.js";
+import { createBackupBundle, validateBackupBundle } from "./backup.js";
 import { correspondingSourceUrl } from "./source.js";
 import { productionConfigErrors, requireProductionConfig } from "./config.js";
+import { scheduleBackups } from "./scheduled.js";
 
 function errorFrame(code, mutationId = null) {
   return JSON.stringify({ type: "error", code, mutationId });
@@ -421,36 +422,40 @@ export default {
     const dataRoute = adminDataRoute(url.pathname);
     if (dataRoute) {
       if (!originAllowed(request, env, true)) return jsonResponse({ error: "origin_not_allowed" }, 403);
-      if (!await hasAccessAssertion(request, env)) return jsonResponse({ error: "access_required" }, 403);
+      if (request.method === "OPTIONS") {
+        return adminPreflight(request, dataRoute.action);
+      }
+      const respond = (response) => withAdminCors(request, response);
+      if (!await hasAccessAssertion(request, env)) return respond(jsonResponse({ error: "access_required" }, 403));
       const bearer = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
-      if (!await verifySecret(bearer, env.ADMIN_SECRET)) return jsonResponse({ error: "invalid_admin_secret" }, 403);
+      if (!await verifySecret(bearer, env.ADMIN_SECRET)) return respond(jsonResponse({ error: "invalid_admin_secret" }, 403));
       const boardId = normalizeBoardId(dataRoute.board);
-      if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+      if (!boardId) return respond(jsonResponse({ error: "invalid_board" }, 400));
       const stub = env.BOARDS.get(env.BOARDS.idFromName(boardId));
       if (dataRoute.action === "export" && request.method === "GET") {
         const bundle = await createBackupBundle(await stub.exportSnapshot(boardId));
-        return new Response(JSON.stringify(bundle), {
+        return respond(new Response(JSON.stringify(bundle), {
           headers: {
             "Content-Type": "application/json; charset=utf-8",
             "Content-Disposition": `attachment; filename="bwa-${boardId}-backup.json"`,
             "Cache-Control": "no-store",
           },
-        });
+        }));
       }
       if (dataRoute.action === "restore" && request.method === "POST") {
         let bundle;
         try {
           bundle = await validateBackupBundle(await request.text());
         } catch (error) {
-          return jsonResponse({ error: error instanceof Error ? error.message : "invalid_backup" }, 400);
+          return respond(jsonResponse({ error: error instanceof Error ? error.message : "invalid_backup" }, 400));
         }
-        if (bundle.snapshot.boardId !== boardId) return jsonResponse({ error: "backup_board_mismatch" }, 409);
-        return jsonResponse(await stub.restoreSnapshot(bundle.snapshot));
+        if (bundle.snapshot.boardId !== boardId) return respond(jsonResponse({ error: "backup_board_mismatch" }, 409));
+        return respond(jsonResponse(await stub.restoreSnapshot(bundle.snapshot)));
       }
       if (dataRoute.action === "purge" && request.method === "POST") {
-        return jsonResponse(await stub.purgeTombstones(Date.now(), 30));
+        return respond(jsonResponse(await stub.purgeTombstones(Date.now(), 30)));
       }
-      return jsonResponse({ error: "method_not_allowed" }, 405);
+      return respond(jsonResponse({ error: "method_not_allowed" }, 405));
     }
     const route = socketRoute(url.pathname);
     if (!route) return jsonResponse({ error: "not_found" }, 404);
@@ -474,21 +479,6 @@ export default {
 
   async scheduled(controller, env, ctx) {
     if (env.ENVIRONMENT === "production") requireProductionConfig(env);
-    const boardIds = String(env.BACKUP_BOARD_IDS || "").split(",").map((value) => normalizeBoardId(value)).filter(Boolean);
-    if (!boardIds.length || !env.GOOGLE_DRIVE_FOLDER_ID) throw new Error("backup_not_configured");
-    const drive = createGoogleDriveClient(env);
-    const jobs = boardIds.map(async (boardId) => {
-      const stub = env.BOARDS.get(env.BOARDS.idFromName(boardId));
-      await stub.purgeTombstones(controller.scheduledTime, 30);
-      const snapshot = await stub.exportSnapshot(boardId);
-      return runBackupRotation({
-        snapshot,
-        drive,
-        folderId: env.GOOGLE_DRIVE_FOLDER_ID,
-        retention: 30,
-        now: new Date(controller.scheduledTime),
-      });
-    });
-    ctx.waitUntil(Promise.all(jobs));
+    scheduleBackups(controller, env, ctx);
   },
 };

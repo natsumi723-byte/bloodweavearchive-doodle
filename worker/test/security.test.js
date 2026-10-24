@@ -7,6 +7,7 @@ import {
   parseAllowedOrigins,
   socketRoute,
   adminDataRoute,
+  adminPreflight,
 } from "../src/security.js";
 import { correspondingSourceUrl } from "../src/source.js";
 
@@ -74,6 +75,42 @@ test("administrator data routes are explicit and bounded", () => {
   assert.deepEqual(adminDataRoute("/api/admin/boards/archive/restore"), { board: "archive", action: "restore" });
   assert.deepEqual(adminDataRoute("/api/admin/boards/archive/purge"), { board: "archive", action: "purge" });
   assert.equal(adminDataRoute("/api/admin/boards/archive/delete-all"), null);
+});
+
+test("administrator CORS preflight is origin-bound and method/header-bounded", async () => {
+  const origin = "https://admin-doodle.bloodweavearchive.com";
+  const request = new Request(
+    "https://api-doodle.bloodweavearchive.com/api/admin/boards/archive/restore",
+    {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization, content-type",
+      },
+    },
+  );
+  const response = adminPreflight(request, "restore");
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), origin);
+  assert.equal(response.headers.get("Access-Control-Allow-Methods"), "POST");
+  assert.equal(
+    response.headers.get("Access-Control-Allow-Headers"),
+    "authorization, content-type",
+  );
+  const rejected = adminPreflight(
+    new Request(request.url, {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "DELETE",
+        "Access-Control-Request-Headers": "x-unbounded-header",
+      },
+    }),
+    "restore",
+  );
+  assert.equal(rejected.status, 403);
+  assert.deepEqual(await rejected.json(), { error: "cors_preflight_rejected" });
 });
 
 test("admin credentials fail closed without verified Access configuration", async () => {

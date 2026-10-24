@@ -3,11 +3,13 @@
 Corresponding source for the collaborative drawing board published by
 Bloodweave Archive.
 
-This repository contains two applications:
+This repository contains three deployable applications:
 
 - `client/`: the modified Whitebophir client and local server integration;
 - `worker/`: the Cloudflare Worker, SQLite-backed Durable Object, ownership
   enforcement, administrator routes, and scheduled Google Drive backup logic.
+- `site-worker/`: the Cloudflare Static Assets Worker for the public and
+  Access-protected administrator HTML shells and browser assets.
 
 ## Development
 
@@ -25,6 +27,14 @@ npm run lint:t42
 cd worker
 npm ci
 npm test
+npm run deploy:dry-run
+```
+
+```sh
+cd site-worker
+npm ci
+npm test
+npm run deploy:dry-run
 ```
 
 The Worker configuration intentionally contains no production secrets. Never
@@ -33,10 +43,10 @@ secrets, Cloudflare tokens, or exported board data.
 
 ## Deployment identity
 
-Production builds must set `RELEASE_GIT_SHA` and `CORRESPONDING_SOURCE_URL` to
-the immutable GitHub URL for that exact deployed commit. The Node client uses
-the matching `WBO_RELEASE_GIT_SHA` and `WBO_CORRESPONDING_SOURCE_URL` values.
-A moving branch URL is rejected by both runtimes.
+The Worker and site deployment wrappers derive `RELEASE_GIT_SHA` and the exact
+immutable GitHub tree URL from `git rev-parse HEAD`. The renderer passes the
+matching identity into the browser shell. A moving branch URL or mismatched
+release identity is rejected.
 
 Public board origin:
 

@@ -26,6 +26,20 @@ function activateWithKeyboard(element, callback) {
   });
 }
 
+/**
+ * @param {string} backend
+ * @param {string} boardName
+ */
+export function adminDataEndpoint(backend, boardName) {
+  const dataOrigin = new URL(backend);
+  if (dataOrigin.protocol === "wss:") dataOrigin.protocol = "https:";
+  if (dataOrigin.protocol === "ws:") dataOrigin.protocol = "http:";
+  if (dataOrigin.protocol !== "https:" && dataOrigin.protocol !== "http:") {
+    throw new Error("Unsupported administrator data endpoint protocol.");
+  }
+  return `${dataOrigin.href.replace(/\/$/, "")}/api/admin/boards/${encodeURIComponent(boardName)}`;
+}
+
 function installAdminDataControls() {
   if (!isAdminPath(location.pathname)) return;
   const backend = /** @type {HTMLMetaElement | null} */ (
@@ -48,7 +62,7 @@ function installAdminDataControls() {
     !restoreFile
   )
     return;
-  const endpoint = `${backend}/api/admin/boards/${encodeURIComponent(boardName)}`;
+  const endpoint = adminDataEndpoint(backend, boardName);
   const headers = () => ({
     Authorization: `Bearer ${currentAdminToken() || ""}`,
   });
@@ -134,6 +148,7 @@ export function installBwaChrome(tools) {
     document.getElementById("styleTool")
   );
   const styleClose = document.getElementById("bwaStyleClose");
+  const styleSummary = document.getElementById("styleSummary");
 
   const syncZoom = () => {
     if (zoomValue)
@@ -167,6 +182,30 @@ export function installBwaChrome(tools) {
   });
   styleClose?.addEventListener("click", () => {
     if (style) style.open = false;
+    styleSummary?.focus();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (style?.open) {
+      style.open = false;
+      styleSummary?.focus();
+      event.preventDefault();
+      return;
+    }
+    if (root.dataset.bwaMore === "true") {
+      root.dataset.bwaMore = "false";
+      more?.setAttribute("aria-expanded", "false");
+      more?.focus();
+      event.preventDefault();
+      return;
+    }
+    if (root.dataset.bwaFocus === "true") {
+      root.dataset.bwaFocus = "false";
+      focus?.setAttribute("aria-pressed", "false");
+      focus?.focus();
+      event.preventDefault();
+    }
   });
 
   syncZoom();

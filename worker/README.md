@@ -10,9 +10,10 @@ SQLite-backed Durable Object per board and hibernatable WebSockets.
    deployment, or place a 32+ character value in `.dev.vars` for local testing.
 3. Run `npm run dev`.
 
-Production also requires `CORRESPONDING_SOURCE_URL` to identify the exact public
-modified-source revision. The `/health` endpoint returns 503 while that value is
-missing, so an upstream-only AGPL link cannot pass a production readiness check.
+Use `npm run deploy:dry-run` or `npm run deploy`. The wrapper derives the exact
+current commit and immutable public tree URL and supplies both release identity
+bindings to Wrangler. The `/health` endpoint returns 503 when that identity is
+missing or mismatched, so an upstream-only or moving AGPL link cannot pass.
 
 The public WebSocket endpoint is `/api/boards/<board-id>/socket`. Clients connect with
 the subprotocol list `["bwa-v2", "owner.<token>"]`, where `<token>` is a
@@ -43,10 +44,10 @@ ephemeral. Deletion succeeds only when the board-scoped HMAC of the current
 browser token matches the stored owner hash. IP addresses are not stored or used
 for ownership.
 
-The deployable topology has three non-overlapping hosts: the Node client serves
-public HTML/assets on `doodle.bloodweavearchive.com` and administrator HTML/assets
-on `admin-doodle.bloodweavearchive.com`; this Worker exclusively owns
-`api-doodle.bloodweavearchive.com`. Cloudflare Access protects the Worker's
-`/api/admin/*` paths. In Cloudflare-authoritative mode the Node server emits an
-empty board shell and never reads or inlines its local SVG history; the Durable
-Object snapshot is the only persisted board baseline.
+The deployable topology has three non-overlapping hosts: `site-worker/` serves
+public HTML/assets on `doodle.bloodweavearchive.com` and administrator
+HTML/assets on `admin-doodle.bloodweavearchive.com`; this Worker exclusively
+owns `api-doodle.bloodweavearchive.com`. Cloudflare Access protects the
+administrator host and the Worker's `/api/admin/*` paths. The generated browser
+shell starts with an empty SVG and the Durable Object WebSocket snapshot is the
+only persisted board baseline.

@@ -31,6 +31,62 @@ export function adminDataRoute(pathname) {
   return match ? { board: match[1], action: match[2] } : null;
 }
 
+export function adminCorsHeaders(request) {
+  const origin = request.headers.get("Origin")?.replace(/\/$/, "");
+  return {
+    "Access-Control-Allow-Origin": origin || "null",
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin",
+  };
+}
+
+export function withAdminCors(request, response) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(adminCorsHeaders(request))) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+export function adminPreflight(request, action) {
+  const requestedMethod = request.headers
+    .get("Access-Control-Request-Method")
+    ?.toUpperCase();
+  const expectedMethod = action === "export" ? "GET" : "POST";
+  const requestedHeaders = String(
+    request.headers.get("Access-Control-Request-Headers") || "",
+  )
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const allowedHeaders = new Set(["authorization", "content-type"]);
+  if (
+    requestedMethod !== expectedMethod ||
+    requestedHeaders.some((header) => !allowedHeaders.has(header))
+  ) {
+    return withAdminCors(
+      request,
+      new Response(JSON.stringify({ error: "cors_preflight_rejected" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      }),
+    );
+  }
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...adminCorsHeaders(request),
+      "Access-Control-Allow-Methods": expectedMethod,
+      "Access-Control-Allow-Headers": requestedHeaders.join(", "),
+      "Access-Control-Max-Age": "600",
+    },
+  });
+}
+
 export function hasAdminProtocol(request) {
   return (request.headers.get("Sec-WebSocket-Protocol") || "")
     .split(",")

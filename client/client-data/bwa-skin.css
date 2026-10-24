@@ -330,8 +330,8 @@ html[data-bwa-more="true"] .bwa-skin #menu #toolID-clear.disabledTool {
   letter-spacing: 0.14em;
 }
 .bwa-style-header button {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: 0;
   background: transparent;
   color: var(--bwa-muted);
@@ -629,7 +629,7 @@ html[data-bwa-focus="true"] .bwa-skin .board-hud {
     content: "";
   }
   .bwa-skin .colorPresets {
-    grid-template-columns: repeat(7, 30px);
+    grid-template-columns: repeat(5, 44px);
     gap: 7px;
   }
 
@@ -637,8 +637,8 @@ html[data-bwa-focus="true"] .bwa-skin .board-hud {
     width: auto;
   }
   .bwa-skin .colorPresetButton {
-    width: 30px;
-    height: 30px;
+    width: 44px;
+    height: 44px;
   }
   .bwa-view-controls {
     display: none;

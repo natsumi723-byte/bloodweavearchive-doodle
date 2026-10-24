@@ -129,7 +129,26 @@ await capture(
     await page.locator("#styleSummary").click();
     await assertInsideViewport(page, "#menu");
     await assertInsideViewport(page, "#stylePanel");
-    return ["mobile-menu-contained", "mobile-style-panel-contained"];
+    const touchTargets = await page
+      .locator("#bwaStyleClose, .colorPresetButton")
+      .evaluateAll((elements) =>
+        elements
+          .filter((element) => element.getClientRects().length > 0)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            return { width: rect.width, height: rect.height };
+          }),
+      );
+    assert.ok(touchTargets.length > 1);
+    assert.equal(
+      touchTargets.every((target) => target.width >= 44 && target.height >= 44),
+      true,
+    );
+    return [
+      "mobile-menu-contained",
+      "mobile-style-panel-contained",
+      "mobile-style-touch-targets-44px",
+    ];
   },
 );
 
@@ -156,16 +175,47 @@ await capture(
       await locator.waitFor();
       await assertInsideViewport(page, `#toolID-${tool}`);
     }
+    await page.locator("#styleSummary").click();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#styleTool").getAttribute("open"), null);
+    assert.equal(
+      await page
+        .locator("#styleSummary")
+        .evaluate((node) => node === document.activeElement),
+      true,
+    );
+    await page.keyboard.press("Escape");
+    assert.equal(
+      await page.locator("#bwaMoreToggle").getAttribute("aria-expanded"),
+      "false",
+    );
+    assert.equal(
+      await page
+        .locator("#bwaMoreToggle")
+        .evaluate((node) => node === document.activeElement),
+      true,
+    );
     await page.locator("#bwaFocusToggle").click();
     assert.equal(
       await page.locator("#bwaFocusToggle").getAttribute("aria-pressed"),
       "true",
     );
     await page.keyboard.press("Escape");
+    assert.equal(
+      await page.locator("#bwaFocusToggle").getAttribute("aria-pressed"),
+      "false",
+    );
+    assert.equal(
+      await page
+        .locator("#bwaFocusToggle")
+        .evaluate((node) => node === document.activeElement),
+      true,
+    );
     return [
       "all-tools-visible-contained",
-      "keyboard-return",
-      "focus-mode-toggled",
+      "style-escape-restores-focus",
+      "more-escape-restores-focus",
+      "focus-escape-restores-focus",
     ];
   },
 );
