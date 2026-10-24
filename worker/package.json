@@ -12,6 +12,7 @@
 		"check:lost-ack-integration": "node scripts/lost-ack-integration-check.mjs",
 		"check:storage-degradation": "node scripts/storage-degradation-integration-check.mjs",
 		"check:ownership-integration": "node scripts/run-integration-fixture.mjs",
+		"check:access-jwt-integration": "node scripts/access-jwt-integration.mjs",
 		"check:admin-browser-e2e": "node scripts/admin-browser-e2e.mjs",
 		"deploy:dry-run": "node scripts/release-wrangler.mjs --dry-run",
 		"deploy": "node scripts/release-wrangler.mjs"

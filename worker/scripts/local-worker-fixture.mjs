@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
+import https from "node:https";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,18 @@ export function reservePort() {
 	});
 }
 
+function probe(origin) {
+	if (origin.startsWith("http://")) return fetch(`${origin}/health`);
+	return new Promise((resolve, reject) => {
+		const request = https.get(
+			`${origin}/health`,
+			{ rejectUnauthorized: false },
+			resolve,
+		);
+		request.on("error", reject);
+	});
+}
+
 async function waitForWorker(origin, child, logs) {
 	const deadline = Date.now() + 30_000;
 	while (Date.now() < deadline) {
@@ -40,15 +53,21 @@ async function waitForWorker(origin, child, logs) {
 			);
 		}
 		try {
-			const response = await fetch(`${origin}/health`);
-			if (response.status < 500) return;
+			const response = await probe(origin);
+			const status = response.status ?? response.statusCode;
+			if (status < 500) return;
 		} catch {}
 		await new Promise((resolve) => setTimeout(resolve, 150));
 	}
 	throw new Error(`local_worker_start_timeout\n${logs.join("")}`);
 }
 
-export async function startLocalWorker({ adminOrigin, publicOrigin }) {
+export async function startLocalWorker({
+	adminOrigin,
+	publicOrigin,
+	protocol = "http",
+	access = { mode: "bypass" },
+}) {
 	const port = await reservePort();
 	const adminSecret = localCredential("admin");
 	const ownershipSecret = localCredential("owner");
@@ -67,6 +86,8 @@ export async function startLocalWorker({ adminOrigin, publicOrigin }) {
 		"127.0.0.1",
 		"--port",
 		String(port),
+		"--local-protocol",
+		protocol,
 		"--var",
 		"ENVIRONMENT:test",
 		"--var",
@@ -74,12 +95,22 @@ export async function startLocalWorker({ adminOrigin, publicOrigin }) {
 		"--var",
 		`ADMIN_SECRET:${adminSecret}`,
 		"--var",
-		"ALLOW_MISSING_ACCESS_ASSERTION:true",
-		"--var",
 		`ALLOWED_PUBLIC_ORIGINS:${publicOrigin}`,
 		"--var",
 		`ALLOWED_ADMIN_ORIGINS:${adminOrigin}`,
 	];
+	if (access.mode === "bypass") {
+		args.push("--var", "ALLOW_MISSING_ACCESS_ASSERTION:true");
+	} else if (access.mode === "local-jwks") {
+		args.push(
+			"--var",
+			`ACCESS_TEAM_DOMAIN:${access.issuer}`,
+			"--var",
+			`ACCESS_POLICY_AUD:${access.audience}`,
+			"--var",
+			`ACCESS_JWKS_JSON:${JSON.stringify(access.jwks)}`,
+		);
+	}
 	const child = spawn(process.execPath, args, {
 		cwd: workerRoot,
 		env: { ...process.env, CI: "true", NO_COLOR: "1" },
@@ -88,7 +119,7 @@ export async function startLocalWorker({ adminOrigin, publicOrigin }) {
 	const logs = [];
 	child.stdout.on("data", (chunk) => logs.push(String(chunk)));
 	child.stderr.on("data", (chunk) => logs.push(String(chunk)));
-	const origin = `http://127.0.0.1:${port}`;
+	const origin = `${protocol}://127.0.0.1:${port}`;
 	await waitForWorker(origin, child, logs);
 	return {
 		adminSecret,

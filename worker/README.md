@@ -12,26 +12,33 @@ SQLite-backed Durable Object per board and hibernatable WebSockets.
 
 ## Reproducible local release fixtures
 
-The release package includes two self-contained local fixtures. They generate
+The release package includes three self-contained local fixtures. They generate
 fresh non-production credentials in memory, start `wrangler dev --local` on a
-free loopback port, set `ALLOW_MISSING_ACCESS_ASSERTION=true` only in that
-local Worker process, and remove the process afterwards. They never read or
-write production secrets.
+free loopback port, and remove the process afterwards. They never read or write
+production secrets. The ownership and browser fixtures use
+`ALLOW_MISSING_ACCESS_ASSERTION=true` only in their local test processes. The
+Access fixture instead uses HTTPS, an ephemeral RSA key, and a local JWK set to
+exercise the real JWT verification path without that bypass.
 
 After `npm ci`, run:
 - `npm run check:ownership-integration` for a fresh unique-board public/admin
   WebSocket run covering owner isolation, administrator delete/move,
   idempotent acknowledgement and persisted replay.
+- `npm run check:access-jwt-integration` for real HTTPS Worker requests proving
+  that a valid Access assertion succeeds while wrong-audience, expired and
+  missing assertions fail closed.
 - `npx playwright install chromium` once, then
   `npm run check:admin-browser-e2e` for a real browser on a separate loopback
-  origin. It exercises the actual Worker `OPTIONS` preflight, origin check,
-  Access fixture bypass, Bearer verification and export/restore/purge routes,
-  including cancel, failure and success.
+  origin. It exercises the HTTPS Worker `OPTIONS` preflight, origin check,
+  local Access bypass, Bearer verification and export/restore/purge routes,
+  including cancel, failure and success. Restore success is followed through
+  navigation and reconnection, then verified by a second export and public
+  owner/non-owner deletion checks.
 
 Both commands print one JSON result containing their unique board and local
 endpoint/origin. `ALLOW_MISSING_ACCESS_ASSERTION` is absent from
-`wrangler.jsonc`; it is a test-only fixture input and must never be used in a
-deployed environment.
+`wrangler.jsonc`; production configuration rejects both this bypass and local
+JWK input, so neither test-only mechanism can enable a deployed Worker.
 
 Use `npm run deploy:dry-run` or `npm run deploy`. The wrapper derives the exact
 current commit and immutable public tree URL and supplies both release identity

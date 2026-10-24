@@ -46,6 +46,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx playwright install chromium
+      - run: npm run check:access-jwt-integration
       - run: npm run check:ownership-integration
       - run: npm run check:admin-browser-e2e
       - run: npm run deploy:dry-run
