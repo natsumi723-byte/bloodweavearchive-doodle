@@ -1027,23 +1027,28 @@ test.describe("single-page interactions", () => {
       window.location.hash = "120,240,0.100";
     });
     await page.locator("#bwaMoreToggle").click();
+    const clip = { x: 600, y: 120, width: 400, height: 400 };
+    const noGridPixels = await page.screenshot({ clip });
     await boardPage.tool("grid").click();
+    const gridPixels = await page.screenshot({ clip });
 
-    const documentUrl = page.url().split("#", 1)[0];
-    await expect(page.locator("#gridContainer")).toHaveAttribute(
+    await expect(page.locator("#gridContainer")).toHaveCSS(
       "fill",
-      `url("${documentUrl}#grid")`,
+      'url("#grid")',
     );
-    await expect(page.locator("#grid rect")).toHaveAttribute(
+    await expect(page.locator("#grid rect")).toHaveCSS(
       "fill",
-      `url("${documentUrl}#smallGrid")`,
+      'url("#smallGrid")',
     );
 
     await boardPage.tool("grid").click();
-    await expect(page.locator("#gridContainer")).toHaveAttribute(
+    const dotPixels = await page.screenshot({ clip });
+    await expect(page.locator("#gridContainer")).toHaveCSS(
       "fill",
-      `url("${documentUrl}#dots")`,
+      'url("#dots")',
     );
+    expect(gridPixels.equals(noGridPixels)).toBe(false);
+    expect(dotPixels.equals(gridPixels)).toBe(false);
   });
 
   test("download reopens without clipping complex painted bounds", async ({

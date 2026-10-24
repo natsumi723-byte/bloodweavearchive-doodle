@@ -36,16 +36,14 @@ export const mouseCursor = "crosshair";
 export const visibleWhenReadOnly = true;
 
 /**
- * Fragment-only SVG paint-server references can resolve against the board's
- * viewport hash instead of the current document in Chromium. Use the full
- * hash-free document URL so grid patterns keep rendering while pan and zoom
- * update location.hash.
+ * Assign fragment-only paint servers through the CSS property. Chromium treats
+ * an absolute HTML-document URL as an external SVG resource and leaves it
+ * unpainted; the CSS local fragment remains scoped to this inline SVG even when
+ * the board stores viewport state in location.hash.
  * @param {string} id
  */
 function paintServerUrl(id) {
-  const documentUrl = new URL(window.location.href);
-  documentUrl.hash = "";
-  return `url("${documentUrl.href}#${id}")`;
+  return `url("#${id}")`;
 }
 
 /**
@@ -88,13 +86,12 @@ function createPatterns(board) {
     height: "3000",
     patternUnits: "userSpaceOnUse",
   });
-  grid.appendChild(
-    board.createSVGElement("rect", {
-      width: "3000",
-      height: "3000",
-      fill: paintServerUrl("smallGrid"),
-    }),
-  );
+  const gridRect = board.createSVGElement("rect", {
+    width: "3000",
+    height: "3000",
+  });
+  gridRect.style.fill = paintServerUrl("smallGrid");
+  grid.appendChild(gridRect);
   grid.appendChild(
     board.createSVGElement("path", {
       d: "M 3000 0 L 0 0 0 3000",
@@ -132,8 +129,8 @@ function createGridContainer(state) {
     id: "gridContainer",
     width: "100%",
     height: "100%",
-    fill: state.states[state.index] || "none",
   });
+  gridContainer.style.fill = state.states[state.index] || "none";
   state.board.svg.insertBefore(gridContainer, state.board.drawingArea);
   return gridContainer;
 }
@@ -158,11 +155,7 @@ export function boot(ctx) {
 /** @param {GridState} state */
 export function onstart(state) {
   state.index = (state.index + 1) % state.states.length;
-  state.gridContainer.setAttributeNS(
-    null,
-    "fill",
-    state.states[state.index] || "none",
-  );
+  state.gridContainer.style.fill = state.states[state.index] || "none";
 }
 
 export function draw() {}
