@@ -213,3 +213,124 @@ test("touch-first dismissal is consumed and stale identities recover", async ({
   });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
+
+test("pointer cancellation keeps the matching touch cancellation isolated", async ({
+  boardPage,
+  page,
+}) => {
+  await boardPage.gotoBoard("mobile-more-menu-cancel-order");
+  const toggle = page.locator("#bwaMoreToggle");
+  await toggle.tap();
+
+  const result = await page.evaluate(() => {
+    const board = document.getElementById("board");
+    const canvas = document.getElementById("canvas");
+    if (!board || !canvas) throw new Error("Missing board surface");
+    const counts: Record<string, number> = {
+      pointerdown: 0,
+      pointercancel: 0,
+      touchstart: 0,
+      touchcancel: 0,
+      click: 0,
+    };
+    for (const type of Object.keys(counts))
+      board.addEventListener(type, () => {
+        counts[type] += 1;
+      });
+    const touch = new Touch({
+      identifier: 71,
+      target: canvas,
+      clientX: 200,
+      clientY: 300,
+    });
+    const sendTouch = (type: string) =>
+      canvas.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          changedTouches: [touch],
+          touches: type === "touchstart" ? [touch] : [],
+          targetTouches: type === "touchstart" ? [touch] : [],
+        }),
+      );
+    const sendPointer = (type: string, pointerId: number) =>
+      canvas.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "touch",
+          isPrimary: true,
+        }),
+      );
+    const canceled = [
+      sendPointer("pointerdown", 71),
+      sendTouch("touchstart"),
+      sendPointer("pointercancel", 71),
+      sendTouch("touchcancel"),
+    ];
+    sendPointer("pointerdown", 72);
+    sendPointer("pointerup", 72);
+    sendPointer("click", 72);
+    return { counts, canceled };
+  });
+
+  expect(result.canceled).toEqual([false, false, false, false]);
+  expect(result.counts).toEqual({
+    pointerdown: 1,
+    pointercancel: 0,
+    touchstart: 0,
+    touchcancel: 0,
+    click: 1,
+  });
+});
+
+test("an independent mouse click is not joined to a held touch dismissal", async ({
+  boardPage,
+  page,
+}) => {
+  await boardPage.gotoBoard("mobile-more-menu-cross-device");
+  const toggle = page.locator("#bwaMoreToggle");
+  await toggle.tap();
+
+  const result = await page.evaluate(() => {
+    const board = document.getElementById("board");
+    const canvas = document.getElementById("canvas");
+    if (!board || !canvas) throw new Error("Missing board surface");
+    const counts: Record<string, number> = {
+      pointerdown: 0,
+      pointerup: 0,
+      click: 0,
+    };
+    for (const type of Object.keys(counts))
+      board.addEventListener(type, () => {
+        counts[type] += 1;
+      });
+    const send = (type: string, pointerId: number, pointerType: string) =>
+      canvas.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType,
+          isPrimary: true,
+        }),
+      );
+    const touchDown = send("pointerdown", 81, "touch");
+    const mouse = [
+      send("pointerdown", 1, "mouse"),
+      send("pointerup", 1, "mouse"),
+      send("click", 1, "mouse"),
+    ];
+    const touchEnd = [
+      send("pointerup", 81, "touch"),
+      send("click", 81, "touch"),
+    ];
+    return { counts, mouse, touchDown, touchEnd };
+  });
+
+  expect(result.touchDown).toBe(false);
+  expect(result.touchEnd).toEqual([false, false]);
+  expect(result.mouse).toEqual([true, true, true]);
+  expect(result.counts).toEqual({ pointerdown: 1, pointerup: 1, click: 1 });
+});

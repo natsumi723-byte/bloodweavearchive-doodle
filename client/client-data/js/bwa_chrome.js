@@ -228,6 +228,7 @@ export function installBwaChrome(tools) {
         root.dataset.bwaMore === "true" &&
         !(target instanceof Node && menu?.contains(target));
       const joinsDismissal =
+        event.pointerType === "touch" &&
         (suppressedPointers.size > 0 || suppressedTouches.size > 0) &&
         !(target instanceof Node && menu?.contains(target));
       if (!startsDismissal && !joinsDismissal) return;
@@ -253,10 +254,6 @@ export function installBwaChrome(tools) {
       if (!suppressedPointers.has(event.pointerId)) return;
       consumeDismissEvent(event);
       clearSuppressedPointer(event.pointerId);
-      if (suppressedPointers.size === 0) {
-        for (const touchId of suppressedTouches.keys())
-          clearSuppressedTouch(touchId);
-      }
     },
     { capture: true },
   );
@@ -310,9 +307,7 @@ export function installBwaChrome(tools) {
       const pointerId =
         event instanceof PointerEvent && suppressedPointers.has(event.pointerId)
           ? event.pointerId
-          : suppressedPointers.size === 1
-            ? suppressedPointers.keys().next().value
-            : undefined;
+          : undefined;
       if (pointerId === undefined) return;
       consumeDismissEvent(event);
       clearSuppressedPointer(pointerId);
