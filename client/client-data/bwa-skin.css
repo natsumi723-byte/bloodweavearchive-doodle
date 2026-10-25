@@ -367,6 +367,7 @@ html[data-bwa-more="true"] .bwa-skin #menu #toolID-clear.disabledTool {
   display: none;
 }
 .bwa-current-color {
+  position: relative;
   display: grid;
   grid-template-columns: 20px 1fr auto;
   align-items: center;
@@ -381,6 +382,18 @@ html[data-bwa-more="true"] .bwa-skin #menu #toolID-clear.disabledTool {
   font: inherit;
   font-size: 11px;
   text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.bwa-current-color-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
   cursor: pointer;
 }
 .bwa-current-color-dot {

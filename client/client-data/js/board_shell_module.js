@@ -135,7 +135,6 @@ export class BoardShellModule {
     const stylePanel = getRequiredElement("stylePanel");
     const stylePreviewDot = getRequiredElement("stylePreviewDot");
     const stylePreviewDotOutline = getRequiredElement("stylePreviewDotOutline");
-    const currentColorButton = getRequiredElement("bwaCurrentColor");
     const currentColorDot = getRequiredElement("bwaCurrentColorDot");
     const currentColorValue = getRequiredElement("bwaCurrentColorValue");
     const sizeValue = getRequiredElement("bwaSizeValue");
@@ -201,8 +200,6 @@ export class BoardShellModule {
     colorChooser.onchange = colorChooser.oninput = () => {
       Tools.preferences.setColor(colorChooser.value);
     };
-    currentColorButton.addEventListener("click", () => colorChooser.click());
-
     sizeChooser.value = String(Tools.preferences.currentSize);
     sizeChooser.onchange = sizeChooser.oninput = () => {
       Tools.preferences.setSize(parseInt(sizeChooser.value, 10));

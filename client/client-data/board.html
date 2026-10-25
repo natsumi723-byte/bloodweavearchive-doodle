@@ -117,17 +117,17 @@
 							<button id="bwaStyleClose" type="button" aria-label="{{translations.close}}">×</button>
 						</div>
 						<legend class="style-panel-title">{{translations.color}}</legend>
-						<input type="color" id="chooseColor" class="style-hidden-input" value="#1913B0"
-							tabindex="-1" aria-label="{{translations.color}}" />
 						<div class="colorPresets" id="colorPresetSel" role="group"
 							aria-label="{{translations.color}}">
 							<button type="button" class="colorPresetButton"></button>
 						</div>
-						<button type="button" class="bwa-current-color" id="bwaCurrentColor" aria-label="{{translations.custom_color}}">
+						<label class="bwa-current-color" id="bwaCurrentColor">
+							<input type="color" id="chooseColor" class="bwa-current-color-input" value="#1913B0"
+								aria-label="{{translations.custom_color}}" />
 							<span class="bwa-current-color-dot" id="bwaCurrentColorDot" aria-hidden="true"></span>
 							<output id="bwaCurrentColorValue">#1913B0</output>
 							<span>{{translations.custom}}</span>
-						</button>
+						</label>
 						<div class="style-row">
 							<label class="style-row-label" for="chooseSize">
 								<span class="style-row-name">{{translations.stroke_width}}</span>
