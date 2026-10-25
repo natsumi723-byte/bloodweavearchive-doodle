@@ -109,6 +109,66 @@ test("public snapshots omit ownership and tombstones", () => {
   assert.equal(JSON.stringify(value).includes("stroke_deleted_1"), false);
 });
 
+test("public snapshot writes project mutations before persistence", async () => {
+  const stored = [];
+  const snapshot = sourceSnapshot();
+  snapshot.strokes[0].payload.mutations[0].ownerHash = "private";
+  snapshot.strokes[0].payload.mutations[0].secret = "private";
+  await writePublicSnapshot(
+    { async put(key, body) { stored.push({ key, body }); } },
+    snapshot,
+    new Date("2026-10-25T00:00:00.000Z"),
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].body.includes("private"), false);
+  assert.deepEqual(
+    JSON.parse(stored[0].body).items[0].payload.mutations[0],
+    {
+      type: 1,
+      tool: 1,
+      id: "stroke_active_1",
+      color: "#8f2949",
+      size: 4,
+      opacity: 1,
+    },
+  );
+});
+
+test("invalid writes cannot replace the last good public snapshot", async () => {
+  const objects = new Map();
+  let writes = 0;
+  const bucket = {
+    async put(key, body) {
+      writes += 1;
+      objects.set(key, body);
+    },
+  };
+  const good = sourceSnapshot();
+  await writePublicSnapshot(
+    bucket,
+    good,
+    new Date("2026-10-25T00:00:00.000Z"),
+  );
+  const key = publicSnapshotKey(good.boardId);
+  const lastGood = objects.get(key);
+  const invalid = sourceSnapshot();
+  invalid.sequence = 9;
+  invalid.strokes[0].payload.mutations = [
+    { tool: 99, type: 99, secret: "SENSITIVE_SENTINEL" },
+  ];
+  await assert.rejects(
+    writePublicSnapshot(
+      bucket,
+      invalid,
+      new Date("2026-10-25T00:01:00.000Z"),
+    ),
+    /invalid_public_snapshot/,
+  );
+  assert.equal(writes, 1);
+  assert.equal(objects.get(key), lastGood);
+  assert.equal(objects.get(key).includes("SENSITIVE_SENTINEL"), false);
+});
+
 test("R2 round trip uses a stable board key", async () => {
   const objects = new Map();
   const bucket = {

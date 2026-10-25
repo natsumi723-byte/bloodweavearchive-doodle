@@ -25,7 +25,7 @@ export function createPublicSnapshot(snapshot, createdAt = new Date()) {
   ) {
     throw new Error("invalid_snapshot");
   }
-  return {
+  const candidate = {
     schema: PUBLIC_SNAPSHOT_SCHEMA,
     boardId: snapshot.boardId,
     sequence: snapshot.sequence,
@@ -38,6 +38,7 @@ export function createPublicSnapshot(snapshot, createdAt = new Date()) {
         sequence: stroke.sequence,
       })),
   };
+  return validatePublicSnapshot(candidate, candidate.boardId);
 }
 
 const ITEM_PATTERN = /^[A-Za-z0-9_-]{8,96}$/;
@@ -179,8 +180,7 @@ export function validatePublicSnapshot(value, expectedBoardId = null) {
     !Array.isArray(value.items) ||
     !value.items.every(
       (item) =>
-        typeof item?.id === "string" &&
-        item.id.length >= 8 &&
+        itemId(item?.id) !== null &&
         item.payload &&
         typeof item.payload === "object" &&
         !Array.isArray(item.payload) &&
