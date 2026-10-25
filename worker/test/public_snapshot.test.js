@@ -6,6 +6,7 @@ import {
   createPublicSnapshot,
   nextPublicSnapshotAlarm,
   publicSnapshotBoardIds,
+  publicSnapshotCacheSeconds,
   publicSnapshotKey,
   readPublicSnapshot,
   writePublicSnapshot,
@@ -16,6 +17,12 @@ test("public snapshot board allowlist rejects unregistered lookup keys", () => {
     [...publicSnapshotBoardIds("bwa-unfinished-archive, second-board, INVALID")],
     ["bwa-unfinished-archive", "second-board"],
   );
+});
+
+test("public snapshot cache TTL cannot drift past the ten-minute ceiling", () => {
+  assert.equal(publicSnapshotCacheSeconds("60"), 60);
+  assert.equal(publicSnapshotCacheSeconds("900"), 600);
+  assert.equal(publicSnapshotCacheSeconds("invalid"), 600);
 });
 
 test("snapshot R2 miss circuit fails closed and resets after its window", () => {

@@ -9,6 +9,12 @@ export function publicSnapshotBoardIds(value) {
   );
 }
 
+export function publicSnapshotCacheSeconds(value, fallback = 600, ceiling = 600) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, ceiling);
+}
+
 export function createSnapshotReadCircuit({
   limit = 6,
   windowMs = 60_000,

@@ -10,16 +10,12 @@ import {
   createSnapshotReadCircuit,
   nextPublicSnapshotAlarm,
   publicSnapshotBoardIds,
+  publicSnapshotCacheSeconds,
   readPublicSnapshot,
   writePublicSnapshot,
 } from "./public_snapshot.js";
 
 const snapshotReadCircuit = createSnapshotReadCircuit();
-
-function positiveInteger(value, fallback) {
-  const parsed = Number.parseInt(String(value || ""), 10);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 function snapshotCacheKey(url, boardId) {
   return new Request(
@@ -37,7 +33,13 @@ function snapshotCacheHeaders(browserSeconds, edgeSeconds) {
 
 function cacheSnapshotResponse(cache, cacheKey, response, ctx) {
   if (!cache) return;
-  ctx?.waitUntil(cache.put(cacheKey, response.clone()).catch(() => undefined));
+  try {
+    const pending = Promise.resolve(cache.put(cacheKey, response.clone()))
+      .catch(() => undefined);
+    ctx?.waitUntil(pending);
+  } catch {
+    // Cache is an optimization. The already-created response remains authoritative.
+  }
 }
 
 function errorFrame(code, mutationId = null) {
@@ -595,10 +597,12 @@ export default {
       if (!publicSnapshotBoardIds(env.BACKUP_BOARD_IDS).has(boardId)) {
         return jsonResponse({ error: "snapshot_not_found" }, 404, {
           "Cache-Control": "public, max-age=300",
-          "CDN-Cache-Control": "public, max-age=3600",
+          "CDN-Cache-Control": "public, max-age=600",
         });
       }
-      const cacheSeconds = positiveInteger(env.PUBLIC_SNAPSHOT_CACHE_SECONDS, 600);
+      const cacheSeconds = publicSnapshotCacheSeconds(
+        env.PUBLIC_SNAPSHOT_CACHE_SECONDS,
+      );
       const cache = globalThis.caches?.default;
       const cacheKey = snapshotCacheKey(url, boardId);
       let cached = null;
