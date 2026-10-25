@@ -6,7 +6,11 @@ import { createBackupBundle, validateBackupBundle } from "./backup.js";
 import { correspondingSourceUrl } from "./source.js";
 import { productionConfigErrors, requireProductionConfig } from "./config.js";
 import { scheduleBackups } from "./scheduled.js";
-import { readPublicSnapshot, writePublicSnapshot } from "./public_snapshot.js";
+import {
+  nextPublicSnapshotAlarm,
+  readPublicSnapshot,
+  writePublicSnapshot,
+} from "./public_snapshot.js";
 
 function errorFrame(code, mutationId = null) {
   return JSON.stringify({ type: "error", code, mutationId });
@@ -260,13 +264,46 @@ export class BoardRoom extends DurableObject {
 
   async schedulePublicSnapshot(boardId) {
     if (!this.env.PUBLIC_SNAPSHOTS) return;
-    await this.ctx.storage.put("public_snapshot_board_id", boardId);
-    if ((await this.ctx.storage.getAlarm()) !== null) return;
-    const seconds = Math.max(
-      60,
-      Number(this.env.PUBLIC_SNAPSHOT_INTERVAL_SECONDS || 600),
-    );
-    await this.ctx.storage.setAlarm(Date.now() + seconds * 1000);
+    const now = Date.now();
+    let dirtySince = this.publicSnapshotDirtySince;
+    if (!Number.isFinite(dirtySince)) {
+      dirtySince = Number(
+        await this.ctx.storage.get("public_snapshot_dirty_since"),
+      );
+    }
+    if (!Number.isFinite(dirtySince)) {
+      dirtySince = now;
+      await this.ctx.storage.put({
+        public_snapshot_board_id: boardId,
+        public_snapshot_dirty_since: dirtySince,
+      });
+    }
+    this.publicSnapshotDirtySince = dirtySince;
+    const quietMs =
+      Math.max(10, Number(this.env.PUBLIC_SNAPSHOT_QUIET_SECONDS || 30)) *
+      1000;
+    const maxMs =
+      Math.max(
+        60,
+        Number(this.env.PUBLIC_SNAPSHOT_MAX_INTERVAL_SECONDS || 600),
+      ) * 1000;
+    const currentAlarm = await this.ctx.storage.getAlarm();
+    const nextAlarm = nextPublicSnapshotAlarm({
+      currentAlarm,
+      dirtySince,
+      now,
+      quietMs,
+      maxMs,
+    });
+    if (nextAlarm !== currentAlarm) await this.ctx.storage.setAlarm(nextAlarm);
+  }
+
+  async clearPublicSnapshotSchedule() {
+    this.publicSnapshotDirtySince = undefined;
+    await this.ctx.storage.delete([
+      "public_snapshot_board_id",
+      "public_snapshot_dirty_since",
+    ]);
   }
 
   async alarm() {
@@ -274,11 +311,15 @@ export class BoardRoom extends DurableObject {
     const boardId =
       this.boardId ||
       (await this.ctx.storage.get("public_snapshot_board_id"));
-    if (!normalizeBoardId(boardId)) return;
+    if (!normalizeBoardId(boardId)) {
+      await this.clearPublicSnapshotSchedule();
+      return;
+    }
     await writePublicSnapshot(
       this.env.PUBLIC_SNAPSHOTS,
       this.exportSnapshot(boardId),
     );
+    await this.clearPublicSnapshotSchedule();
   }
 
   applyMutation(attachment, message, { record = true } = {}) {

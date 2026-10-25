@@ -1,5 +1,19 @@
 const PUBLIC_SNAPSHOT_SCHEMA = "bwa-public-board-snapshot/v1";
 
+export function nextPublicSnapshotAlarm({
+  currentAlarm,
+  dirtySince,
+  now,
+  quietMs,
+  maxMs,
+  rescheduleGranularityMs = 10_000,
+}) {
+  const deadline = Math.min(now + quietMs, dirtySince + maxMs);
+  if (currentAlarm === null || deadline <= currentAlarm) return deadline;
+  if (deadline - currentAlarm < rescheduleGranularityMs) return currentAlarm;
+  return deadline;
+}
+
 export function publicSnapshotKey(boardId) {
   return `boards/${boardId}/latest.json`;
 }

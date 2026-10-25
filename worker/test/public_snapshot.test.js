@@ -3,10 +3,52 @@ import test from "node:test";
 
 import {
   createPublicSnapshot,
+  nextPublicSnapshotAlarm,
   publicSnapshotKey,
   readPublicSnapshot,
   writePublicSnapshot,
 } from "../src/public_snapshot.js";
+
+test("snapshot alarms debounce until quiet without crossing the hard deadline", () => {
+  const dirtySince = 1_000_000;
+  const quietMs = 30_000;
+  const maxMs = 600_000;
+  const first = nextPublicSnapshotAlarm({
+    currentAlarm: null,
+    dirtySince,
+    now: dirtySince,
+    quietMs,
+    maxMs,
+  });
+  assert.equal(first, dirtySince + quietMs);
+
+  const belowGranularity = nextPublicSnapshotAlarm({
+    currentAlarm: first,
+    dirtySince,
+    now: dirtySince + 5_000,
+    quietMs,
+    maxMs,
+  });
+  assert.equal(belowGranularity, first);
+
+  const afterMoreActivity = nextPublicSnapshotAlarm({
+    currentAlarm: first,
+    dirtySince,
+    now: dirtySince + 15_000,
+    quietMs,
+    maxMs,
+  });
+  assert.equal(afterMoreActivity, dirtySince + 45_000);
+
+  const capped = nextPublicSnapshotAlarm({
+    currentAlarm: dirtySince + 590_000,
+    dirtySince,
+    now: dirtySince + 590_000,
+    quietMs,
+    maxMs,
+  });
+  assert.equal(capped, dirtySince + maxMs);
+});
 
 function sourceSnapshot() {
   return {
