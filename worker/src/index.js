@@ -7,10 +7,33 @@ import { correspondingSourceUrl } from "./source.js";
 import { productionConfigErrors, requireProductionConfig } from "./config.js";
 import { scheduleBackups } from "./scheduled.js";
 import {
+  createSnapshotReadCircuit,
   nextPublicSnapshotAlarm,
+  publicSnapshotBoardIds,
   readPublicSnapshot,
   writePublicSnapshot,
 } from "./public_snapshot.js";
+
+const snapshotReadCircuit = createSnapshotReadCircuit();
+
+function positiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function snapshotCacheKey(url, boardId) {
+  return new Request(
+    `${url.origin}/api/boards/${encodeURIComponent(boardId)}/snapshot`,
+    { method: "GET" },
+  );
+}
+
+function snapshotCacheHeaders(browserSeconds, edgeSeconds) {
+  return {
+    "Cache-Control": `public, max-age=${browserSeconds}, stale-if-error=86400`,
+    "CDN-Cache-Control": `public, max-age=${edgeSeconds}, stale-if-error=86400`,
+  };
+}
 
 function errorFrame(code, mutationId = null) {
   return JSON.stringify({ type: "error", code, mutationId });
@@ -534,7 +557,7 @@ class MutationError extends Error {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
       const source = correspondingSourceUrl(env);
@@ -564,23 +587,53 @@ export default {
       }
       const boardId = normalizeBoardId(decodedBoardId);
       if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+      if (!publicSnapshotBoardIds(env.BACKUP_BOARD_IDS).has(boardId)) {
+        return jsonResponse({ error: "snapshot_not_found" }, 404, {
+          "Cache-Control": "public, max-age=300",
+          "CDN-Cache-Control": "public, max-age=3600",
+        });
+      }
+      const cacheSeconds = positiveInteger(env.PUBLIC_SNAPSHOT_CACHE_SECONDS, 600);
+      const cache = globalThis.caches?.default;
+      const cacheKey = snapshotCacheKey(url, boardId);
+      const cached = cache ? await cache.match(cacheKey) : null;
+      if (cached) return cached;
+      if (!snapshotReadCircuit.take()) {
+        return jsonResponse({ error: "snapshot_temporarily_limited" }, 503, {
+          "Cache-Control": "public, max-age=10",
+          "CDN-Cache-Control": "public, max-age=60",
+          "Retry-After": "60",
+        });
+      }
       let found;
       try {
         found = await readPublicSnapshot(env.PUBLIC_SNAPSHOTS, boardId);
       } catch {
-        return jsonResponse({ error: "snapshot_unavailable" }, 503, {
-          "Cache-Control": "no-store",
+        const response = jsonResponse({ error: "snapshot_unavailable" }, 503, {
+          ...snapshotCacheHeaders(10, 60),
+          "Retry-After": "60",
         });
+        if (cache) ctx?.waitUntil(cache.put(cacheKey, response.clone()));
+        return response;
       }
-      if (!found) return jsonResponse({ error: "snapshot_not_ready" }, 404, {
-        "Cache-Control": "no-store",
-      });
+      if (!found) {
+        const response = jsonResponse({ error: "snapshot_not_ready" }, 404, {
+          ...snapshotCacheHeaders(60, cacheSeconds),
+        });
+        if (cache) ctx?.waitUntil(cache.put(cacheKey, response.clone()));
+        return response;
+      }
       const headers = new Headers();
       found.object.writeHttpMetadata(headers);
+      for (const [name, value] of Object.entries(snapshotCacheHeaders(60, cacheSeconds))) {
+        headers.set(name, value);
+      }
       headers.set("ETag", found.object.httpEtag);
       headers.set("Content-Language", "en");
       headers.set("X-Content-Type-Options", "nosniff");
-      return new Response(JSON.stringify(found.value), { headers });
+      const response = new Response(JSON.stringify(found.value), { headers });
+      if (cache) ctx?.waitUntil(cache.put(cacheKey, response.clone()));
+      return response;
     }
     const dataRoute = adminDataRoute(url.pathname);
     if (dataRoute) {

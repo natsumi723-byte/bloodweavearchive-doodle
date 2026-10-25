@@ -2,12 +2,35 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createSnapshotReadCircuit,
   createPublicSnapshot,
   nextPublicSnapshotAlarm,
+  publicSnapshotBoardIds,
   publicSnapshotKey,
   readPublicSnapshot,
   writePublicSnapshot,
 } from "../src/public_snapshot.js";
+
+test("public snapshot board allowlist rejects unregistered lookup keys", () => {
+  assert.deepEqual(
+    [...publicSnapshotBoardIds("bwa-unfinished-archive, second-board, INVALID")],
+    ["bwa-unfinished-archive", "second-board"],
+  );
+});
+
+test("snapshot R2 miss circuit fails closed and resets after its window", () => {
+  let timestamp = 1_000;
+  const circuit = createSnapshotReadCircuit({
+    limit: 2,
+    windowMs: 60_000,
+    now: () => timestamp,
+  });
+  assert.equal(circuit.take(), true);
+  assert.equal(circuit.take(), true);
+  assert.equal(circuit.take(), false);
+  timestamp += 60_000;
+  assert.equal(circuit.take(), true);
+});
 
 test("snapshot alarms debounce until quiet without crossing the hard deadline", () => {
   const dirtySince = 1_000_000;

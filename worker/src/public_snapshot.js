@@ -1,5 +1,35 @@
 const PUBLIC_SNAPSHOT_SCHEMA = "bwa-public-board-snapshot/v1";
 
+export function publicSnapshotBoardIds(value) {
+  return new Set(
+    String(value || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => /^[a-z0-9][a-z0-9-]{0,63}$/.test(entry)),
+  );
+}
+
+export function createSnapshotReadCircuit({
+  limit = 6,
+  windowMs = 60_000,
+  now = () => Date.now(),
+} = {}) {
+  let windowStartedAt = 0;
+  let misses = 0;
+  return {
+    take() {
+      const timestamp = now();
+      if (timestamp - windowStartedAt >= windowMs) {
+        windowStartedAt = timestamp;
+        misses = 0;
+      }
+      if (misses >= limit) return false;
+      misses += 1;
+      return true;
+    },
+  };
+}
+
 export function nextPublicSnapshotAlarm({
   currentAlarm,
   dirtySince,
