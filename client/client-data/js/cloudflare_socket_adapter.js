@@ -230,7 +230,10 @@ export class CloudflareSocket {
           const payload = await probe.json().catch(() => ({}));
           if (payload?.error === "capacity_exhausted") {
             this.dispatchReadOnlyState();
-            const snapshotLoaded = await this.loadReadOnlySnapshot(routePrefix);
+            const snapshotLoaded = await this.loadReadOnlySnapshot(
+              routePrefix,
+              generation,
+            );
             if (generation !== this.connectGeneration) return;
             this.connecting = false;
             this.dispatch("connect_error", {
@@ -285,7 +288,7 @@ export class CloudflareSocket {
     });
   }
 
-  async loadReadOnlySnapshot(routePrefix) {
+  async loadReadOnlySnapshot(routePrefix, generation) {
     if (routePrefix !== "/api/boards") return false;
     const snapshotUrl = new URL(
       `${routePrefix}/${encodeURIComponent(this.boardName)}/snapshot`,
@@ -304,6 +307,7 @@ export class CloudflareSocket {
       ) {
         return false;
       }
+      if (generation !== this.connectGeneration) return false;
       this.receive({ type: "snapshot", items: snapshot.items });
       return true;
     } catch {

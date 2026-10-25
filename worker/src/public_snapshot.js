@@ -40,22 +40,130 @@ export function createPublicSnapshot(snapshot, createdAt = new Date()) {
   };
 }
 
-const PROHIBITED_PUBLIC_KEYS = new Set([
-  "ownerhash",
-  "deletedat",
-  "mutationreceipts",
-  "adminidentity",
-  "secret",
-]);
+const ITEM_PATTERN = /^[A-Za-z0-9_-]{8,96}$/;
+const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
-function containsProhibitedKey(value) {
-  if (!value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(containsProhibitedKey);
-  return Object.entries(value).some(
-    ([key, child]) =>
-      PROHIBITED_PUBLIC_KEYS.has(key.toLowerCase()) ||
-      containsProhibitedKey(child),
-  );
+function plainRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+function finite(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function itemId(value) {
+  return typeof value === "string" && ITEM_PATTERN.test(value) ? value : null;
+}
+
+function transform(value) {
+  const record = plainRecord(value);
+  if (!record) return null;
+  const result = {};
+  for (const key of ["a", "b", "c", "d", "e", "f"]) {
+    if (!finite(record[key])) return null;
+    result[key] = record[key];
+  }
+  return result;
+}
+
+function optionalOpacity(value) {
+  return value === undefined || finite(value) ? value : null;
+}
+
+function projectPublicMutation(value) {
+  const mutation = plainRecord(value);
+  if (!mutation) return null;
+  const tool = mutation.tool;
+  const type = mutation.type;
+  if (!Number.isSafeInteger(tool) || !Number.isSafeInteger(type)) return null;
+
+  if (type === 1 && tool === 1) {
+    const id = itemId(mutation.id);
+    if (
+      !id ||
+      !COLOR_PATTERN.test(mutation.color || "") ||
+      !finite(mutation.size) ||
+      optionalOpacity(mutation.opacity) === null
+    ) return null;
+    return {
+      tool,
+      type,
+      id,
+      color: mutation.color,
+      size: mutation.size,
+      ...(mutation.opacity === undefined ? {} : { opacity: mutation.opacity }),
+    };
+  }
+  if (type === 1 && [2, 3, 4].includes(tool)) {
+    const id = itemId(mutation.id);
+    if (
+      !id ||
+      !COLOR_PATTERN.test(mutation.color || "") ||
+      !finite(mutation.size) ||
+      optionalOpacity(mutation.opacity) === null ||
+      ![mutation.x, mutation.y, mutation.x2, mutation.y2].every(finite)
+    ) return null;
+    return {
+      tool, type, id, color: mutation.color, size: mutation.size,
+      ...(mutation.opacity === undefined ? {} : { opacity: mutation.opacity }),
+      x: mutation.x, y: mutation.y,
+      x2: mutation.x2, y2: mutation.y2,
+    };
+  }
+  if (type === 1 && tool === 5) {
+    const id = itemId(mutation.id);
+    if (
+      !id ||
+      !COLOR_PATTERN.test(mutation.color || "") ||
+      !finite(mutation.size) ||
+      optionalOpacity(mutation.opacity) === null ||
+      !finite(mutation.x) ||
+      !finite(mutation.y)
+    ) return null;
+    return {
+      tool, type, id, color: mutation.color, size: mutation.size,
+      ...(mutation.opacity === undefined ? {} : { opacity: mutation.opacity }),
+      x: mutation.x, y: mutation.y,
+    };
+  }
+  if (type === 2 && tool === 2) {
+    const id = itemId(mutation.id);
+    if (!id || !finite(mutation.x2) || !finite(mutation.y2)) return null;
+    return { tool, type, id, x2: mutation.x2, y2: mutation.y2 };
+  }
+  if (type === 2 && [3, 4].includes(tool)) {
+    const id = itemId(mutation.id);
+    if (!id || ![mutation.x, mutation.y, mutation.x2, mutation.y2].every(finite)) return null;
+    return { tool, type, id, x: mutation.x, y: mutation.y, x2: mutation.x2, y2: mutation.y2 };
+  }
+  if (type === 2 && tool === 5) {
+    const id = itemId(mutation.id);
+    if (!id || typeof mutation.txt !== "string") return null;
+    return { tool, type, id, txt: mutation.txt };
+  }
+  if (type === 2 && tool === 7) {
+    const id = itemId(mutation.id);
+    const projectedTransform = transform(mutation.transform);
+    if (!id || !projectedTransform) return null;
+    return { tool, type, id, transform: projectedTransform };
+  }
+  if (type === 3 && [6, 7].includes(tool)) {
+    const id = itemId(mutation.id);
+    return id ? { tool, type, id } : null;
+  }
+  if (type === 4 && tool === 1) {
+    const parent = itemId(mutation.parent);
+    if (!parent || !finite(mutation.x) || !finite(mutation.y)) return null;
+    return { tool, type, parent, x: mutation.x, y: mutation.y };
+  }
+  if (type === 7 && tool === 7) {
+    const id = itemId(mutation.id);
+    const newid = itemId(mutation.newid);
+    return id && newid ? { tool, type, id, newid } : null;
+  }
+  return null;
 }
 
 export function validatePublicSnapshot(value, expectedBoardId = null) {
@@ -79,12 +187,8 @@ export function validatePublicSnapshot(value, expectedBoardId = null) {
         Array.isArray(item.payload.mutations) &&
         item.payload.mutations.length > 0 &&
         item.payload.mutations.every(
-          (mutation) =>
-            mutation &&
-            typeof mutation === "object" &&
-            !Array.isArray(mutation),
+          (mutation) => projectPublicMutation(mutation) !== null,
         ) &&
-        !containsProhibitedKey(item.payload) &&
         Number.isSafeInteger(item.sequence) &&
         item.sequence >= 0,
     )
@@ -98,7 +202,9 @@ export function validatePublicSnapshot(value, expectedBoardId = null) {
     createdAt: value.createdAt,
     items: value.items.map((item) => ({
       id: item.id,
-      payload: { mutations: structuredClone(item.payload.mutations) },
+      payload: {
+        mutations: item.payload.mutations.map(projectPublicMutation),
+      },
       sequence: item.sequence,
     })),
   };

@@ -784,3 +784,104 @@ test("Cloudflare adapter explicitly disables editing when the capacity snapshot 
     Object.assign(globalAny, previous);
   }
 });
+
+test("Cloudflare adapter discards a delayed snapshot from a superseded connection", async () => {
+  const globalAny = /** @type {any} */ (global);
+  const previous = {
+    WebSocket: global.WebSocket,
+    location: global.location,
+    window: global.window,
+    document: global.document,
+    localStorage: global.localStorage,
+    fetch: global.fetch,
+  };
+  let probes = 0;
+  let snapshots = 0;
+  let sockets = 0;
+  /** @type {(response: Response) => void} */
+  let resolveSnapshot = () => {};
+  const delayedSnapshot = new Promise((resolve) => {
+    resolveSnapshot = resolve;
+  });
+  globalAny.location = {
+    pathname: "/boards/archive",
+    protocol: "https:",
+    host: "doodle.example",
+    origin: "https://doodle.example",
+  };
+  globalAny.window = { addEventListener() {} };
+  globalAny.document = { addEventListener() {}, visibilityState: "visible" };
+  globalAny.localStorage = { getItem: () => "A".repeat(43), setItem() {} };
+  /** @param {RequestInfo | URL} input */
+  globalAny.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/snapshot")) {
+      snapshots++;
+      return delayedSnapshot;
+    }
+    probes++;
+    if (probes === 1) {
+      return new Response(JSON.stringify({ error: "capacity_exhausted" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }));
+  };
+  globalAny.WebSocket = class {
+    static OPEN = 1;
+    readyState = 0;
+    constructor() {
+      sockets++;
+    }
+    addEventListener() {}
+    close() {}
+  };
+  try {
+    const { CloudflareSocket } = await import(
+      `../client-data/js/cloudflare_socket_adapter.js?stale-snapshot=${Date.now()}`
+    );
+    const socket = new CloudflareSocket("wss://api.example", "archive");
+    /** @type {unknown[]} */
+    const broadcasts = [];
+    /** @type {unknown[]} */
+    const errors = [];
+    socket.on("broadcast", (/** @type {unknown} */ message) =>
+      broadcasts.push(message),
+    );
+    socket.on("connect_error", (/** @type {unknown} */ error) =>
+      errors.push(error),
+    );
+    socket.connect();
+    await new Promise((resolve) => setImmediate(resolve));
+    socket.disconnect();
+    socket.connect();
+    await new Promise((resolve) => setImmediate(resolve));
+    resolveSnapshot(
+      new Response(
+        JSON.stringify({
+          schema: "bwa-public-board-snapshot/v1",
+          boardId: "archive",
+          sequence: 1,
+          createdAt: "2026-10-25T00:00:00.000Z",
+          items: [
+            {
+              id: "stroke_fixture_1",
+              sequence: 1,
+              payload: { mutations: [{ type: 1, tool: 1 }] },
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(probes, 2);
+    assert.equal(snapshots, 1);
+    assert.equal(sockets, 1);
+    assert.equal(broadcasts.length, 0);
+    assert.equal(errors.length, 0);
+  } finally {
+    Object.assign(globalAny, previous);
+  }
+});

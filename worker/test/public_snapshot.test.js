@@ -58,7 +58,18 @@ function sourceSnapshot() {
     strokes: [
       {
         id: "stroke_active_1",
-        payload: { mutations: [{ type: 1, tool: 0 }] },
+        payload: {
+          mutations: [
+            {
+              type: 1,
+              tool: 1,
+              id: "stroke_active_1",
+              color: "#8f2949",
+              size: 4,
+              opacity: 1,
+            },
+          ],
+        },
         ownerHash: "a".repeat(64),
         sequence: 7,
         createdAt: 1,
@@ -66,7 +77,18 @@ function sourceSnapshot() {
       },
       {
         id: "stroke_deleted_1",
-        payload: { mutations: [{ type: 1, tool: 0 }] },
+        payload: {
+          mutations: [
+            {
+              type: 1,
+              tool: 1,
+              id: "stroke_deleted_1",
+              color: "#8f2949",
+              size: 4,
+              opacity: 1,
+            },
+          ],
+        },
         ownerHash: "b".repeat(64),
         sequence: 8,
         createdAt: 2,
@@ -136,7 +158,22 @@ test("public snapshot reads project only allowlisted fields", async () => {
     items: [
       {
         id: "stroke_active_1",
-        payload: { mutations: [{ type: 1, tool: 0 }] },
+        payload: {
+          mutations: [
+            {
+              type: 1,
+              tool: 1,
+              id: "stroke_active_1",
+              color: "#8f2949",
+              size: 4,
+              opacity: 1,
+              owner_hash: "private",
+              adminToken: "private",
+              password: "private",
+              deleted_at: 1,
+            },
+          ],
+        },
         sequence: 7,
         ownerHash: "private",
         deletedAt: null,
@@ -165,6 +202,14 @@ test("public snapshot reads project only allowlisted fields", async () => {
     "sequence",
   ]);
   assert.equal(JSON.stringify(found.value).includes("private"), false);
+  assert.deepEqual(found.value.items[0].payload.mutations[0], {
+    type: 1,
+    tool: 1,
+    id: "stroke_active_1",
+    color: "#8f2949",
+    size: 4,
+    opacity: 1,
+  });
 });
 
 test("public snapshot reads reject mismatches, malformed values and prohibited payload metadata", async () => {
@@ -176,7 +221,18 @@ test("public snapshot reads reject mismatches, malformed values and prohibited p
     items: [
       {
         id: "stroke_active_1",
-        payload: { mutations: [{ type: 1, tool: 0 }] },
+        payload: {
+          mutations: [
+            {
+              type: 1,
+              tool: 1,
+              id: "stroke_active_1",
+              color: "#8f2949",
+              size: 4,
+              opacity: 1,
+            },
+          ],
+        },
         sequence: 7,
       },
     ],
@@ -185,14 +241,10 @@ test("public snapshot reads reject mismatches, malformed values and prohibited p
     { ...base, boardId: "different-board" },
     { ...base, createdAt: "not-a-date" },
     { ...base, items: [{ ...base.items[0], payload: {} }] },
+    { ...base, items: [{ ...base.items[0], payload: { mutations: [{}] } }] },
     {
       ...base,
-      items: [
-        {
-          ...base.items[0],
-          payload: { mutations: [{ type: 1, ownerHash: "private" }] },
-        },
-      ],
+      items: [{ ...base.items[0], payload: { mutations: [{ type: 99, tool: 1 }] } }],
     },
   ];
   for (const value of invalid) {
