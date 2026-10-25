@@ -123,3 +123,93 @@ test("R2 round trip uses a stable board key", async () => {
   assert.equal(found.value.items.length, 1);
 });
 
+test("public snapshot reads project only allowlisted fields", async () => {
+  const polluted = {
+    schema: "bwa-public-board-snapshot/v1",
+    boardId: "bwa-unfinished-archive",
+    sequence: 8,
+    createdAt: "2026-10-25T00:00:00.000Z",
+    ownerHash: "private",
+    mutationReceipts: ["private"],
+    adminIdentity: "private",
+    secret: "private",
+    items: [
+      {
+        id: "stroke_active_1",
+        payload: { mutations: [{ type: 1, tool: 0 }] },
+        sequence: 7,
+        ownerHash: "private",
+        deletedAt: null,
+      },
+    ],
+  };
+  const object = {
+    async json() {
+      return polluted;
+    },
+  };
+  const found = await readPublicSnapshot(
+    { async get() { return object; } },
+    "bwa-unfinished-archive",
+  );
+  assert.deepEqual(Object.keys(found.value), [
+    "schema",
+    "boardId",
+    "sequence",
+    "createdAt",
+    "items",
+  ]);
+  assert.deepEqual(Object.keys(found.value.items[0]), [
+    "id",
+    "payload",
+    "sequence",
+  ]);
+  assert.equal(JSON.stringify(found.value).includes("private"), false);
+});
+
+test("public snapshot reads reject mismatches, malformed values and prohibited payload metadata", async () => {
+  const base = {
+    schema: "bwa-public-board-snapshot/v1",
+    boardId: "bwa-unfinished-archive",
+    sequence: 8,
+    createdAt: "2026-10-25T00:00:00.000Z",
+    items: [
+      {
+        id: "stroke_active_1",
+        payload: { mutations: [{ type: 1, tool: 0 }] },
+        sequence: 7,
+      },
+    ],
+  };
+  const invalid = [
+    { ...base, boardId: "different-board" },
+    { ...base, createdAt: "not-a-date" },
+    { ...base, items: [{ ...base.items[0], payload: {} }] },
+    {
+      ...base,
+      items: [
+        {
+          ...base.items[0],
+          payload: { mutations: [{ type: 1, ownerHash: "private" }] },
+        },
+      ],
+    },
+  ];
+  for (const value of invalid) {
+    await assert.rejects(
+      readPublicSnapshot(
+        { async get() { return { async json() { return value; } }; } },
+        "bwa-unfinished-archive",
+      ),
+      /invalid_public_snapshot/,
+    );
+  }
+  await assert.rejects(
+    readPublicSnapshot(
+      { async get() { throw new Error("r2 unavailable"); } },
+      "bwa-unfinished-archive",
+    ),
+    /r2 unavailable/,
+  );
+});
+

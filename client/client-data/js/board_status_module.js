@@ -77,6 +77,17 @@ export class StatusModule {
     });
   }
 
+  showCapacitySnapshotUnavailableNotice() {
+    const Tools = this.getTools();
+    this.showBoardStatus({
+      hidden: false,
+      state: "paused",
+      title: Tools.i18n.t("capacity_snapshot_unavailable_title"),
+      detail: Tools.i18n.t("capacity_snapshot_unavailable_detail"),
+      retryable: true,
+    });
+  }
+
   /** @param {string} reason */
   showUnknownMutationError(reason) {
     const Tools = this.getTools();

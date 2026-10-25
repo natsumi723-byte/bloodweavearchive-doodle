@@ -229,11 +229,20 @@ export class CloudflareSocket {
         if (probe.status === 503) {
           const payload = await probe.json().catch(() => ({}));
           if (payload?.error === "capacity_exhausted") {
-            await this.loadReadOnlySnapshot(routePrefix);
+            this.dispatchReadOnlyState();
+            const snapshotLoaded = await this.loadReadOnlySnapshot(routePrefix);
+            if (generation !== this.connectGeneration) return;
             this.connecting = false;
             this.dispatch("connect_error", {
-              message: "capacity_exhausted",
-              data: { reason: "capacity_exhausted", terminal: true },
+              message: snapshotLoaded
+                ? "capacity_exhausted"
+                : "capacity_snapshot_unavailable",
+              data: {
+                reason: snapshotLoaded
+                  ? "capacity_exhausted"
+                  : "capacity_snapshot_unavailable",
+                terminal: true,
+              },
             });
             return;
           }
@@ -296,17 +305,20 @@ export class CloudflareSocket {
         return false;
       }
       this.receive({ type: "snapshot", items: snapshot.items });
-      this.dispatch("boardstate", {
-        canEdit: false,
-        canWrite: false,
-        canClear: false,
-        canBan: false,
-        canReport: false,
-      });
       return true;
     } catch {
       return false;
     }
+  }
+
+  dispatchReadOnlyState() {
+    this.dispatch("boardstate", {
+      canEdit: false,
+      canWrite: false,
+      canClear: false,
+      canBan: false,
+      canReport: false,
+    });
   }
 
   disconnect() {

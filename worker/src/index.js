@@ -564,7 +564,14 @@ export default {
       }
       const boardId = normalizeBoardId(decodedBoardId);
       if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
-      const found = await readPublicSnapshot(env.PUBLIC_SNAPSHOTS, boardId);
+      let found;
+      try {
+        found = await readPublicSnapshot(env.PUBLIC_SNAPSHOTS, boardId);
+      } catch {
+        return jsonResponse({ error: "snapshot_unavailable" }, 503, {
+          "Cache-Control": "no-store",
+        });
+      }
       if (!found) return jsonResponse({ error: "snapshot_not_ready" }, 404, {
         "Cache-Control": "no-store",
       });

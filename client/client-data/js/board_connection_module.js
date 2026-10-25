@@ -462,7 +462,11 @@ export class ConnectionModule {
             Tools.connection.socket = null;
             closeSocket(socket);
           }
-          Tools.status.showCapacityNotice();
+          if (reason === "capacity_snapshot_unavailable") {
+            Tools.status.showCapacitySnapshotUnavailableNotice();
+          } else {
+            Tools.status.showCapacityNotice();
+          }
           return;
         }
         if (reason === "baseline_not_replayable") {

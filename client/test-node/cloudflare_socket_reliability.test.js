@@ -699,3 +699,88 @@ test("Cloudflare adapter keeps one probe in flight and surfaces terminal capacit
     Object.assign(globalAny, previous);
   }
 });
+
+test("Cloudflare adapter explicitly disables editing when the capacity snapshot is unavailable", async () => {
+  const globalAny = /** @type {any} */ (global);
+  const previous = {
+    WebSocket: global.WebSocket,
+    location: global.location,
+    window: global.window,
+    document: global.document,
+    localStorage: global.localStorage,
+    fetch: global.fetch,
+  };
+  let probes = 0;
+  let snapshots = 0;
+  let sockets = 0;
+  globalAny.location = {
+    pathname: "/boards/archive",
+    protocol: "https:",
+    host: "doodle.example",
+    origin: "https://doodle.example",
+  };
+  globalAny.window = { addEventListener() {} };
+  globalAny.document = { addEventListener() {}, visibilityState: "visible" };
+  globalAny.localStorage = { getItem: () => "A".repeat(43), setItem() {} };
+  /** @param {RequestInfo | URL} input */
+  globalAny.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/snapshot")) {
+      snapshots++;
+      return new Response(JSON.stringify({ error: "snapshot_not_ready" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    probes++;
+    return new Response(JSON.stringify({ error: "capacity_exhausted" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  globalAny.WebSocket = class {
+    constructor() {
+      sockets++;
+    }
+  };
+  try {
+    const { CloudflareSocket } = await import(
+      `../client-data/js/cloudflare_socket_adapter.js?missing-snapshot=${Date.now()}`
+    );
+    const socket = new CloudflareSocket("wss://api.example", "archive");
+    /** @type {Array<{data?: {reason?: string, terminal?: boolean}}>} */
+    const errors = [];
+    /** @type {Array<{canEdit: boolean, canWrite: boolean, canClear: boolean, canBan: boolean, canReport: boolean}>} */
+    const boardStates = [];
+    socket.on(
+      "connect_error",
+      /** @param {{data?: {reason?: string, terminal?: boolean}}} error */ (
+        error,
+      ) => errors.push(error),
+    );
+    socket.on(
+      "boardstate",
+      /** @param {{canEdit: boolean, canWrite: boolean, canClear: boolean, canBan: boolean, canReport: boolean}} state */ (
+        state,
+      ) => boardStates.push(state),
+    );
+    socket.connect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(probes, 1);
+    assert.equal(snapshots, 1);
+    assert.equal(sockets, 0);
+    assert.deepEqual(errors[0]?.data, {
+      reason: "capacity_snapshot_unavailable",
+      terminal: true,
+    });
+    assert.deepEqual(boardStates[boardStates.length - 1], {
+      canEdit: false,
+      canWrite: false,
+      canClear: false,
+      canBan: false,
+      canReport: false,
+    });
+  } finally {
+    Object.assign(globalAny, previous);
+  }
+});
