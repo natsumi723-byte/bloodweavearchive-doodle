@@ -8,6 +8,7 @@ function fixture(failingBoard = null) {
   const env = {
     BACKUP_BOARD_IDS: "board-one, board-two",
     GOOGLE_DRIVE_FOLDER_ID: "private-folder",
+    PUBLIC_SNAPSHOTS: { kind: "mock-r2" },
     BOARDS: {
       idFromName: (name) => name,
       get(name) {
@@ -33,6 +34,7 @@ function fixture(failingBoard = null) {
 test("scheduled orchestration purges, exports, dispatches and preserves retention", async () => {
   const { calls, env } = fixture();
   const rotations = [];
+  const publications = [];
   const scheduledTime = Date.UTC(2026, 9, 24, 19, 30);
   const result = await runScheduledBackups(
     { scheduledTime },
@@ -42,6 +44,9 @@ test("scheduled orchestration purges, exports, dispatches and preserves retentio
       rotate: async (options) => {
         rotations.push(options);
         return { boardId: options.snapshot.boardId };
+      },
+      publish: async (bucket, snapshot, now) => {
+        publications.push({ bucket, snapshot, now });
       },
     },
   );
@@ -56,6 +61,15 @@ test("scheduled orchestration purges, exports, dispatches and preserves retentio
   assert.equal(rotations.every((entry) => entry.retention === 30), true);
   assert.equal(rotations.every((entry) => entry.folderId === "private-folder"), true);
   assert.equal(rotations.every((entry) => entry.now.getTime() === scheduledTime), true);
+  assert.equal(publications.length, 2);
+  assert.equal(
+    publications.every((entry) => entry.bucket === env.PUBLIC_SNAPSHOTS),
+    true,
+  );
+  assert.equal(
+    publications.every((entry) => entry.now.getTime() === scheduledTime),
+    true,
+  );
 });
 
 test("scheduled handler registers the complete orchestration with waitUntil", async () => {
@@ -68,6 +82,7 @@ test("scheduled handler registers the complete orchestration with waitUntil", as
     {
       createDrive: () => ({}),
       rotate: async ({ snapshot }) => ({ boardId: snapshot.boardId }),
+      publish: async () => {},
     },
   );
   assert.equal(waited, completion);
@@ -87,6 +102,7 @@ test("scheduled orchestration waits for every board before surfacing partial fai
           rotations.push(options.snapshot.boardId);
           return { ok: true };
         },
+        publish: async () => {},
       },
     ),
     /backup_partial_failure:1\/2/,

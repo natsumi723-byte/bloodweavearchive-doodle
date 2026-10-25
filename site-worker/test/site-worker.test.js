@@ -8,6 +8,7 @@ import worker, {
   isAdminApiRequest,
   isBoardApiRequest,
   isPublicCapacityProbe,
+  isPublicSnapshotRequest,
   preferredLanguage,
 } from "../src/index.js";
 
@@ -16,6 +17,18 @@ test("static assets do not rewrite internal HTML shell fetches", async () => {
     await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
   );
   assert.equal(config.assets.html_handling, "none");
+  assert.deepEqual(config.assets.run_worker_first, [
+    "/",
+    "/boards",
+    "/boards/*",
+    "/admin",
+    "/admin/*",
+    "/manifest.json",
+    "/api/*",
+    "/public-*.html",
+    "/admin-*.html",
+    "/manifest-*.json",
+  ]);
 });
 
 test("language selection only exposes the supported allowlist", () => {
@@ -158,6 +171,46 @@ test("same-origin public capacity probes are proxied to the API binding", async 
   assert.equal(await response.text(), "capacity");
   assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.equal(forwarded.length, 1);
+});
+
+test("same-origin public snapshots are proxied without exposing other API shapes", async () => {
+  const forwarded = [];
+  const env = {
+    BOARD_ID: "bwa-unfinished-archive",
+    PUBLIC_HOST: "doodle.example",
+    ADMIN_HOST: "admin-doodle.example",
+    API: {
+      fetch(request) {
+        forwarded.push(request);
+        return new Response("snapshot", {
+          headers: { "cache-control": "public, max-age=60" },
+        });
+      },
+    },
+    ASSETS: { fetch: () => new Response("asset") },
+  };
+  const url = new URL(
+    "https://doodle.example/api/boards/bwa-unfinished-archive/snapshot",
+  );
+  const request = new Request(url);
+  assert.equal(isPublicSnapshotRequest(request, url, url.hostname, env), true);
+  assert.equal(isBoardApiRequest(request, url, url.hostname, env), true);
+  const response = await worker.fetch(request, env);
+  assert.equal(await response.text(), "snapshot");
+  assert.equal(forwarded.length, 1);
+
+  const wrongBoard = new URL(
+    "https://doodle.example/api/boards/another-board/snapshot",
+  );
+  assert.equal(
+    isPublicSnapshotRequest(
+      new Request(wrongBoard),
+      wrongBoard,
+      wrongBoard.hostname,
+      env,
+    ),
+    false,
+  );
 });
 
 test("public proxy rejects every non-capacity route shape", async () => {

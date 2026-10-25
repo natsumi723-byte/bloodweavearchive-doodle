@@ -599,6 +599,7 @@ test("Cloudflare adapter keeps one probe in flight and surfaces terminal capacit
     fetch: global.fetch,
   };
   let probes = 0;
+  let snapshots = 0;
   let sockets = 0;
   globalAny.location = {
     pathname: "/boards/archive",
@@ -609,7 +610,30 @@ test("Cloudflare adapter keeps one probe in flight and surfaces terminal capacit
   globalAny.window = { addEventListener() {} };
   globalAny.document = { addEventListener() {}, visibilityState: "visible" };
   globalAny.localStorage = { getItem: () => "A".repeat(43), setItem() {} };
-  globalAny.fetch = async () => {
+  /** @param {RequestInfo | URL} input */
+  globalAny.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/snapshot")) {
+      snapshots++;
+      return new Response(
+        JSON.stringify({
+          schema: "bwa-public-board-snapshot/v1",
+          boardId: "archive",
+          sequence: 1,
+          createdAt: "2026-10-25T00:00:00.000Z",
+          items: [
+            {
+              id: "stroke_fixture_1",
+              sequence: 1,
+              payload: {
+                mutations: [{ type: 1, tool: 0, newid: "stroke_fixture_1" }],
+              },
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }
     probes++;
     await Promise.resolve();
     return new Response(JSON.stringify({ error: "capacity_exhausted" }), {
@@ -629,21 +653,46 @@ test("Cloudflare adapter keeps one probe in flight and surfaces terminal capacit
     const socket = new CloudflareSocket("wss://api.example", "archive");
     /** @type {Array<{data?: {reason?: string, terminal?: boolean}}>} */
     const errors = [];
+    /** @type {Array<{_children: unknown[]}>} */
+    const broadcasts = [];
+    /** @type {Array<{canEdit: boolean, canWrite: boolean, canClear: boolean, canBan: boolean, canReport: boolean}>} */
+    const boardStates = [];
     socket.on(
       "connect_error",
       /** @param {{data?: {reason?: string, terminal?: boolean}}} error */ (
         error,
       ) => errors.push(error),
     );
+    socket.on(
+      "broadcast",
+      /** @param {{_children: unknown[]}} message */ (message) =>
+        broadcasts.push(message),
+    );
+    socket.on(
+      "boardstate",
+      /** @param {{canEdit: boolean, canWrite: boolean, canClear: boolean, canBan: boolean, canReport: boolean}} message */ (
+        message,
+      ) => boardStates.push(message),
+    );
     socket.connect();
     socket.connect();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(probes, 1);
+    assert.equal(snapshots, 1);
     assert.equal(sockets, 0);
     assert.equal(errors.length, 1);
     assert.deepEqual(errors[0]?.data, {
       reason: "capacity_exhausted",
       terminal: true,
+    });
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0]?._children.length, 1);
+    assert.deepEqual(boardStates[boardStates.length - 1], {
+      canEdit: false,
+      canWrite: false,
+      canClear: false,
+      canBan: false,
+      canReport: false,
     });
     assert.equal(socket.connecting, false);
   } finally {

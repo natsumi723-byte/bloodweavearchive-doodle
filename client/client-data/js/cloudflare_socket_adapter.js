@@ -229,6 +229,7 @@ export class CloudflareSocket {
         if (probe.status === 503) {
           const payload = await probe.json().catch(() => ({}));
           if (payload?.error === "capacity_exhausted") {
+            await this.loadReadOnlySnapshot(routePrefix);
             this.connecting = false;
             this.dispatch("connect_error", {
               message: "capacity_exhausted",
@@ -273,6 +274,39 @@ export class CloudflareSocket {
       this.connecting = false;
       this.dispatch("connect_error", new Error("cloudflare_websocket_error"));
     });
+  }
+
+  async loadReadOnlySnapshot(routePrefix) {
+    if (routePrefix !== "/api/boards") return false;
+    const snapshotUrl = new URL(
+      `${routePrefix}/${encodeURIComponent(this.boardName)}/snapshot`,
+      location.origin,
+    );
+    try {
+      const response = await fetch(snapshotUrl, {
+        credentials: "omit",
+        cache: "no-cache",
+      });
+      if (!response.ok) return false;
+      const snapshot = await response.json();
+      if (
+        snapshot?.schema !== "bwa-public-board-snapshot/v1" ||
+        !Array.isArray(snapshot.items)
+      ) {
+        return false;
+      }
+      this.receive({ type: "snapshot", items: snapshot.items });
+      this.dispatch("boardstate", {
+        canEdit: false,
+        canWrite: false,
+        canClear: false,
+        canBan: false,
+        canReport: false,
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   disconnect() {

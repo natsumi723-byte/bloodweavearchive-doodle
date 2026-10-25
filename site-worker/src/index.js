@@ -41,9 +41,19 @@ function isPublicCapacityProbe(request, url, host, env) {
   );
 }
 
+function isPublicSnapshotRequest(request, url, host, env) {
+  return (
+    host === env.PUBLIC_HOST &&
+    request.method === "GET" &&
+    url.pathname === `/api/boards/${encodeURIComponent(env.BOARD_ID)}/snapshot` &&
+    url.searchParams.size === 0
+  );
+}
+
 function isBoardApiRequest(request, url, host, env) {
   return (
     isPublicCapacityProbe(request, url, host, env) ||
+    isPublicSnapshotRequest(request, url, host, env) ||
     isAdminApiRequest(url, host, env)
   );
 }
@@ -132,5 +142,6 @@ export {
   isAdminApiRequest,
   isBoardApiRequest,
   isPublicCapacityProbe,
+  isPublicSnapshotRequest,
   preferredLanguage,
 };

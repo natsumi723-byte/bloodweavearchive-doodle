@@ -15,6 +15,13 @@
       }
     ]
   },
+  "r2_buckets": [
+    {
+      "binding": "PUBLIC_SNAPSHOTS",
+      "bucket_name": "bwa-doodle-public-snapshots",
+      "preview_bucket_name": "bwa-doodle-public-snapshots-preview"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -27,6 +34,7 @@
   "vars": {
     "ENVIRONMENT": "production",
     "BOARD_MAX_ITEMS": "300000",
+    "PUBLIC_SNAPSHOT_INTERVAL_SECONDS": "600",
     "BACKUP_BOARD_IDS": "bwa-unfinished-archive",
     "GOOGLE_DRIVE_FOLDER_ID": "1jz_Li-2T8MivoZ7KECHccNdKYzY9KrQ9",
     "SOURCE_REPOSITORY": "natsumi723-byte/bloodweavearchive-doodle",

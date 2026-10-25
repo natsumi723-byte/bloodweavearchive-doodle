@@ -6,6 +6,7 @@ import { createBackupBundle, validateBackupBundle } from "./backup.js";
 import { correspondingSourceUrl } from "./source.js";
 import { productionConfigErrors, requireProductionConfig } from "./config.js";
 import { scheduleBackups } from "./scheduled.js";
+import { readPublicSnapshot, writePublicSnapshot } from "./public_snapshot.js";
 
 function errorFrame(code, mutationId = null) {
   return JSON.stringify({ type: "error", code, mutationId });
@@ -73,6 +74,7 @@ export class BoardRoom extends DurableObject {
     const url = new URL(request.url);
     const boardId = normalizeBoardId(url.searchParams.get("board"));
     if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+    this.boardId = boardId;
     if (
       request.method === "GET" &&
       url.searchParams.get("capacityProbe") === "1"
@@ -239,6 +241,7 @@ export class BoardRoom extends DurableObject {
         }
         return { ...applied, dropAck };
       });
+      if (result.event) this.ctx.waitUntil(this.schedulePublicSnapshot(attachment.boardId));
       if (result.event) this.broadcast(result.event, socket);
       if (message.type === "admin.delete_all") this.markBoardRecovered();
       if (result.dropAck) {
@@ -253,6 +256,29 @@ export class BoardRoom extends DurableObject {
       }
       socket.send(errorFrame(code, message.mutationId));
     }
+  }
+
+  async schedulePublicSnapshot(boardId) {
+    if (!this.env.PUBLIC_SNAPSHOTS) return;
+    await this.ctx.storage.put("public_snapshot_board_id", boardId);
+    if ((await this.ctx.storage.getAlarm()) !== null) return;
+    const seconds = Math.max(
+      60,
+      Number(this.env.PUBLIC_SNAPSHOT_INTERVAL_SECONDS || 600),
+    );
+    await this.ctx.storage.setAlarm(Date.now() + seconds * 1000);
+  }
+
+  async alarm() {
+    if (!this.env.PUBLIC_SNAPSHOTS) return;
+    const boardId =
+      this.boardId ||
+      (await this.ctx.storage.get("public_snapshot_board_id"));
+    if (!normalizeBoardId(boardId)) return;
+    await writePublicSnapshot(
+      this.env.PUBLIC_SNAPSHOTS,
+      this.exportSnapshot(boardId),
+    );
   }
 
   applyMutation(attachment, message, { record = true } = {}) {
@@ -478,6 +504,35 @@ export default {
         return jsonResponse({ ok: false, error: "production_config_invalid", configurationErrors }, 503);
       }
       return jsonResponse({ ok: true, storage: "durable-object-sqlite", source });
+    }
+    const publicSnapshotMatch = url.pathname.match(
+      /^\/api\/boards\/([^/]+)\/snapshot$/,
+    );
+    if (publicSnapshotMatch) {
+      if (request.method !== "GET") {
+        return jsonResponse({ error: "method_not_allowed" }, 405);
+      }
+      if (!originAllowed(request, env, false)) {
+        return jsonResponse({ error: "origin_not_allowed" }, 403);
+      }
+      let decodedBoardId;
+      try {
+        decodedBoardId = decodeURIComponent(publicSnapshotMatch[1]);
+      } catch {
+        return jsonResponse({ error: "invalid_board" }, 400);
+      }
+      const boardId = normalizeBoardId(decodedBoardId);
+      if (!boardId) return jsonResponse({ error: "invalid_board" }, 400);
+      const found = await readPublicSnapshot(env.PUBLIC_SNAPSHOTS, boardId);
+      if (!found) return jsonResponse({ error: "snapshot_not_ready" }, 404, {
+        "Cache-Control": "no-store",
+      });
+      const headers = new Headers();
+      found.object.writeHttpMetadata(headers);
+      headers.set("ETag", found.object.httpEtag);
+      headers.set("Content-Language", "en");
+      headers.set("X-Content-Type-Options", "nosniff");
+      return new Response(JSON.stringify(found.value), { headers });
     }
     const dataRoute = adminDataRoute(url.pathname);
     if (dataRoute) {

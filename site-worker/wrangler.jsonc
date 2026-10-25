@@ -17,7 +17,18 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "run_worker_first": true,
+    "run_worker_first": [
+      "/",
+      "/boards",
+      "/boards/*",
+      "/admin",
+      "/admin/*",
+      "/manifest.json",
+      "/api/*",
+      "/public-*.html",
+      "/admin-*.html",
+      "/manifest-*.json"
+    ],
     "html_handling": "none"
   },
   "vars": {
