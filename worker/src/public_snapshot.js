@@ -14,7 +14,7 @@ export function createSnapshotReadCircuit({
   windowMs = 60_000,
   now = () => Date.now(),
 } = {}) {
-  let windowStartedAt = 0;
+  let windowStartedAt = now();
   let misses = 0;
   return {
     take() {

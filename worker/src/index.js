@@ -30,9 +30,14 @@ function snapshotCacheKey(url, boardId) {
 
 function snapshotCacheHeaders(browserSeconds, edgeSeconds) {
   return {
-    "Cache-Control": `public, max-age=${browserSeconds}, stale-if-error=86400`,
-    "CDN-Cache-Control": `public, max-age=${edgeSeconds}, stale-if-error=86400`,
+    "Cache-Control": `public, max-age=${browserSeconds}`,
+    "CDN-Cache-Control": `public, max-age=${edgeSeconds}`,
   };
+}
+
+function cacheSnapshotResponse(cache, cacheKey, response, ctx) {
+  if (!cache) return;
+  ctx?.waitUntil(cache.put(cacheKey, response.clone()).catch(() => undefined));
 }
 
 function errorFrame(code, mutationId = null) {
@@ -596,7 +601,15 @@ export default {
       const cacheSeconds = positiveInteger(env.PUBLIC_SNAPSHOT_CACHE_SECONDS, 600);
       const cache = globalThis.caches?.default;
       const cacheKey = snapshotCacheKey(url, boardId);
-      const cached = cache ? await cache.match(cacheKey) : null;
+      let cached = null;
+      try {
+        cached = cache ? await cache.match(cacheKey) : null;
+      } catch {
+        return jsonResponse({ error: "snapshot_cache_unavailable" }, 503, {
+          ...snapshotCacheHeaders(10, 60),
+          "Retry-After": "60",
+        });
+      }
       if (cached) return cached;
       if (!snapshotReadCircuit.take()) {
         return jsonResponse({ error: "snapshot_temporarily_limited" }, 503, {
@@ -613,14 +626,14 @@ export default {
           ...snapshotCacheHeaders(10, 60),
           "Retry-After": "60",
         });
-        if (cache) ctx?.waitUntil(cache.put(cacheKey, response.clone()));
+        cacheSnapshotResponse(cache, cacheKey, response, ctx);
         return response;
       }
       if (!found) {
         const response = jsonResponse({ error: "snapshot_not_ready" }, 404, {
           ...snapshotCacheHeaders(60, cacheSeconds),
         });
-        if (cache) ctx?.waitUntil(cache.put(cacheKey, response.clone()));
+        cacheSnapshotResponse(cache, cacheKey, response, ctx);
         return response;
       }
       const headers = new Headers();
@@ -632,7 +645,7 @@ export default {
       headers.set("Content-Language", "en");
       headers.set("X-Content-Type-Options", "nosniff");
       const response = new Response(JSON.stringify(found.value), { headers });
-      if (cache) ctx?.waitUntil(cache.put(cacheKey, response.clone()));
+      cacheSnapshotResponse(cache, cacheKey, response, ctx);
       return response;
     }
     const dataRoute = adminDataRoute(url.pathname);

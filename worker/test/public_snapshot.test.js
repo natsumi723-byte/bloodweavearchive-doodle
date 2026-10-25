@@ -32,6 +32,20 @@ test("snapshot R2 miss circuit fails closed and resets after its window", () => 
   assert.equal(circuit.take(), true);
 });
 
+test("snapshot R2 miss circuit starts with a complete first window", () => {
+  let timestamp = 59_999;
+  const circuit = createSnapshotReadCircuit({
+    limit: 1,
+    windowMs: 60_000,
+    now: () => timestamp,
+  });
+  assert.equal(circuit.take(), true);
+  timestamp = 60_001;
+  assert.equal(circuit.take(), false);
+  timestamp = 119_999;
+  assert.equal(circuit.take(), true);
+});
+
 test("snapshot alarms debounce until quiet without crossing the hard deadline", () => {
   const dirtySince = 1_000_000;
   const quietMs = 30_000;
